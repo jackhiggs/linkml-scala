@@ -1,4 +1,7 @@
-trait {{ name }}{% if parent %} extends {{ parent }}{% endif %}{% for m in mixins %} with {{ m }}{% endfor %} {
+{% if scaladoc %}
+{{ scaladoc }}
+{% endif %}
+{% if sealed %}sealed {% endif %}trait {{ name }}{% if parent %} extends {{ parent }}{% endif %}{% for m in mixins %} with {{ m }}{% endfor %} {
 {% for field in fields %}
   def {{ field.name }}: {{ field.scala_type }}
 {% endfor %}

@@ -154,3 +154,182 @@ class TestCli:
         result = runner.invoke(cli, [EXAMPLE_SCHEMA, "--package", "com.example.model"])
         assert result.exit_code == 0
         assert "package com.example.model" in result.output
+
+
+class TestScalaDocGeneration:
+    def setup_method(self):
+        self.gen = ScalaGenerator(EXAMPLE_SCHEMA)
+
+    def test_class_description_scaladoc(self):
+        sv = self.gen._get_schemaview()
+        cls = sv.get_class("Person")
+        result = self.gen.generate_case_class(cls)
+        assert "/**" in result
+        assert "A person" in result
+        assert "*/" in result
+
+    def test_class_mappings_see(self):
+        sv = self.gen._get_schemaview()
+        cls = sv.get_class("Person")
+        result = self.gen.generate_case_class(cls)
+        assert "@see Close mapping: schema:Person" in result
+
+    def test_trait_mappings_see(self):
+        sv = self.gen._get_schemaview()
+        cls = sv.get_class("NamedThing")
+        result = self.gen.generate_trait(cls)
+        assert "@see Exact mapping: schema:Thing" in result
+
+    def test_deprecated_annotation(self):
+        sv = self.gen._get_schemaview()
+        cls = sv.get_class("Person")
+        result = self.gen.generate_case_class(cls)
+        assert "@deprecated" in result
+
+    def test_no_scaladoc_when_no_description(self):
+        sv = self.gen._get_schemaview()
+        cls = sv.get_class("Organization")
+        doc = self.gen.generate_scaladoc(cls)
+        assert doc == ""
+
+    def test_enum_scaladoc(self):
+        sv = self.gen._get_schemaview()
+        enum_def = sv.get_enum("Status")
+        result = self.gen.generate_enum(enum_def)
+        assert "The status of an entity" in result
+
+    def test_enum_value_description(self):
+        sv = self.gen._get_schemaview()
+        enum_def = sv.get_enum("Status")
+        result = self.gen.generate_enum(enum_def)
+        assert "Entity is currently active" in result
+
+    def test_enum_value_meaning(self):
+        sv = self.gen._get_schemaview()
+        enum_def = sv.get_enum("Status")
+        result = self.gen.generate_enum(enum_def)
+        assert "@see schema:ActiveActionStatus" in result
+
+    def test_unique_key_note(self):
+        sv = self.gen._get_schemaview()
+        cls = sv.get_class("Person")
+        result = self.gen.generate_case_class(cls)
+        assert "@note Unique key: (name, email)" in result
+
+    def test_tree_root_doc(self):
+        sv = self.gen._get_schemaview()
+        cls = sv.get_class("LivingThing")
+        result = self.gen.generate_trait(cls)
+        assert "This is the tree root." in result
+
+
+class TestSlotConstraints:
+    def setup_method(self):
+        self.gen = ScalaGenerator(EXAMPLE_SCHEMA)
+
+    def test_slot_usage_pattern(self):
+        sv = self.gen._get_schemaview()
+        cls = sv.get_class("Person")
+        fields = self.gen._get_fields(cls)
+        email_field = next(f for f in fields if f.name == "email")
+        assert email_field.pattern == "^\\S+@\\S+\\.\\S+$"
+
+    def test_slot_usage_min_max(self):
+        sv = self.gen._get_schemaview()
+        cls = sv.get_class("Person")
+        fields = self.gen._get_fields(cls)
+        age_field = next(f for f in fields if f.name == "age")
+        assert age_field.minimum_value == 0
+        assert age_field.maximum_value == 200
+
+    def test_slot_usage_cardinality(self):
+        sv = self.gen._get_schemaview()
+        cls = sv.get_class("Person")
+        fields = self.gen._get_fields(cls)
+        scores_field = next(f for f in fields if f.name == "scores")
+        assert scores_field.maximum_cardinality == 10
+
+    def test_identifier_flag(self):
+        sv = self.gen._get_schemaview()
+        slot = sv.get_slot("id")
+        cls = sv.get_class("Person")
+        field = self.gen._slot_to_field(slot, cls)
+        assert field.identifier is True
+
+    def test_slot_usage_required_override(self):
+        sv = self.gen._get_schemaview()
+        cls = sv.get_class("Person")
+        fields = self.gen._get_fields(cls)
+        email_field = next(f for f in fields if f.name == "email")
+        # email is required via slot_usage, so no Option wrapper
+        assert "Option[" not in email_field.scala_type
+
+
+class TestCompanionObject:
+    def setup_method(self):
+        self.gen = ScalaGenerator(EXAMPLE_SCHEMA)
+
+    def test_companion_generated_for_constrained_class(self):
+        sv = self.gen._get_schemaview()
+        cls = sv.get_class("Person")
+        result = self.gen.generate_case_class(cls)
+        assert "object Person {" in result
+        assert "def validate(instance: Person): List[String]" in result
+
+    def test_companion_pattern_validation(self):
+        sv = self.gen._get_schemaview()
+        cls = sv.get_class("Person")
+        result = self.gen.generate_case_class(cls)
+        assert 'matches(' in result
+        assert "email must match" in result
+
+    def test_companion_range_validation(self):
+        sv = self.gen._get_schemaview()
+        cls = sv.get_class("Person")
+        result = self.gen.generate_case_class(cls)
+        assert "age must be between 0 and 200" in result
+
+    def test_companion_cardinality_validation(self):
+        sv = self.gen._get_schemaview()
+        cls = sv.get_class("Person")
+        result = self.gen.generate_case_class(cls)
+        assert "scores must have at most 10 elements" in result
+
+    def test_no_companion_for_unconstrained_class(self):
+        sv = self.gen._get_schemaview()
+        cls = sv.get_class("Organization")
+        result = self.gen.generate_case_class(cls)
+        assert "object Organization" not in result
+
+
+class TestSealedTraits:
+    def setup_method(self):
+        self.gen = ScalaGenerator(EXAMPLE_SCHEMA)
+
+    def test_sealed_trait_disjoint(self):
+        sv = self.gen._get_schemaview()
+        cls = sv.get_class("LivingThing")
+        assert self.gen._is_sealed(cls)
+        result = self.gen.generate_trait(cls)
+        assert "sealed trait LivingThing" in result
+
+    def test_sealed_trait_union_of(self):
+        sv = self.gen._get_schemaview()
+        cls = sv.get_class("Shape")
+        assert self.gen._is_sealed(cls)
+        result = self.gen.generate_trait(cls)
+        assert "sealed trait Shape" in result
+
+    def test_non_sealed_trait(self):
+        sv = self.gen._get_schemaview()
+        cls = sv.get_class("NamedThing")
+        assert not self.gen._is_sealed(cls)
+        result = self.gen.generate_trait(cls)
+        assert "sealed" not in result
+
+    def test_union_member_extends_sealed_trait(self):
+        gen = ScalaGenerator(EXAMPLE_SCHEMA)
+        result = gen.serialize()
+        # Circle and Square should extend Shape
+        assert "Circle" in result
+        assert "Square" in result

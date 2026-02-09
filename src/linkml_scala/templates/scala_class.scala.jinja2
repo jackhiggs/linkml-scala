@@ -1,3 +1,9 @@
+{% if scaladoc %}
+{{ scaladoc }}
+{% endif %}
+{% if deprecated %}
+@deprecated
+{% endif %}
 case class {{ name }}(
 {% for field in fields %}
   {{ field.name }}: {{ field.scala_type }}{{ field.default }}{{ "," if not loop.last }}

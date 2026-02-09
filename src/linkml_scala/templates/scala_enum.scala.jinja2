@@ -1,5 +1,18 @@
+{% if scaladoc %}
+{{ scaladoc }}
+{% endif %}
 enum {{ name }} {
 {% for value in values %}
-  case {{ value }}
+{% if value.description or value.meaning %}
+  /**
+{% if value.description %}
+   * {{ value.description }}
+{% endif %}
+{% if value.meaning %}
+   * @see {{ value.meaning }}
+{% endif %}
+   */
+{% endif %}
+  case {{ value.name }}
 {% endfor %}
 }

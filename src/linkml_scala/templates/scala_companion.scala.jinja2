@@ -1,0 +1,101 @@
+object {{ name }} {
+  def validate(instance: {{ name }}): List[String] = {
+    val errors = List.newBuilder[String]
+{% for field in fields %}
+{% if field.pattern %}
+{% if "Option[" in field.scala_type %}
+    if (!instance.{{ field.name }}.forall(_.matches("{{ field.pattern }}")))
+      errors += "{{ field.name }} must match {{ field.pattern }}"
+{% else %}
+    if (!instance.{{ field.name }}.matches("{{ field.pattern }}"))
+      errors += "{{ field.name }} must match {{ field.pattern }}"
+{% endif %}
+{% endif %}
+{% if field.minimum_value is not none and field.maximum_value is not none %}
+{% if "Option[" in field.scala_type %}
+    if (!instance.{{ field.name }}.forall(v => v >= {{ field.minimum_value | int }} && v <= {{ field.maximum_value | int }}))
+      errors += "{{ field.name }} must be between {{ field.minimum_value | int }} and {{ field.maximum_value | int }}"
+{% else %}
+    if (!(instance.{{ field.name }} >= {{ field.minimum_value | int }} && instance.{{ field.name }} <= {{ field.maximum_value | int }}))
+      errors += "{{ field.name }} must be between {{ field.minimum_value | int }} and {{ field.maximum_value | int }}"
+{% endif %}
+{% elif field.minimum_value is not none %}
+{% if "Option[" in field.scala_type %}
+    if (!instance.{{ field.name }}.forall(_ >= {{ field.minimum_value | int }}))
+      errors += "{{ field.name }} must be >= {{ field.minimum_value | int }}"
+{% else %}
+    if (!(instance.{{ field.name }} >= {{ field.minimum_value | int }}))
+      errors += "{{ field.name }} must be >= {{ field.minimum_value | int }}"
+{% endif %}
+{% elif field.maximum_value is not none %}
+{% if "Option[" in field.scala_type %}
+    if (!instance.{{ field.name }}.forall(_ <= {{ field.maximum_value | int }}))
+      errors += "{{ field.name }} must be <= {{ field.maximum_value | int }}"
+{% else %}
+    if (!(instance.{{ field.name }} <= {{ field.maximum_value | int }}))
+      errors += "{{ field.name }} must be <= {{ field.maximum_value | int }}"
+{% endif %}
+{% endif %}
+{% if field.maximum_cardinality is not none %}
+{% if "List[" in field.scala_type %}
+    if (instance.{{ field.name }}.size > {{ field.maximum_cardinality }})
+      errors += "{{ field.name }} must have at most {{ field.maximum_cardinality }} elements"
+{% endif %}
+{% endif %}
+{% if field.minimum_cardinality is not none and field.minimum_cardinality > 0 %}
+{% if "List[" in field.scala_type %}
+    if (instance.{{ field.name }}.size < {{ field.minimum_cardinality }})
+      errors += "{{ field.name }} must have at least {{ field.minimum_cardinality }} elements"
+{% endif %}
+{% endif %}
+{% if field.equals_string %}
+{% if "Option[" in field.scala_type %}
+    if (!instance.{{ field.name }}.forall(_ == "{{ field.equals_string }}"))
+      errors += "{{ field.name }} must equal '{{ field.equals_string }}'"
+{% else %}
+    if (instance.{{ field.name }} != "{{ field.equals_string }}")
+      errors += "{{ field.name }} must equal '{{ field.equals_string }}'"
+{% endif %}
+{% endif %}
+{% if field.equals_string_in %}
+{% if "Option[" in field.scala_type %}
+    if (!instance.{{ field.name }}.forall(v => Set({{ field.equals_string_in | map('tojson') | join(', ') }}).contains(v)))
+      errors += "{{ field.name }} must be one of: {{ field.equals_string_in | join(', ') }}"
+{% else %}
+    if (!Set({{ field.equals_string_in | map('tojson') | join(', ') }}).contains(instance.{{ field.name }}))
+      errors += "{{ field.name }} must be one of: {{ field.equals_string_in | join(', ') }}"
+{% endif %}
+{% endif %}
+{% endfor %}
+    errors.result()
+  }
+{% for rule in rules %}
+
+  /** {{ rule.description }} */
+  def {{ rule.name }}(instance: {{ name }}): List[String] = {
+    val errors = List.newBuilder[String]
+{% if rule.preconditions %}
+    val preconditionsMet =
+{% for field, op, value in rule.preconditions %}
+      instance.{{ field }} match {
+        case Some(v) => v {{ op }} {{ value }}
+        case None => false
+      }{% if not loop.last %} &&{% endif %}
+
+{% endfor %}
+    if (preconditionsMet) {
+{% for field, op, value in rule.postconditions %}
+      instance.{{ field }} match {
+        case Some(v) if !(v {{ op }} {{ value }}) =>
+          errors += "{{ rule.description }}: {{ field }} must {{ op }} {{ value }}"
+        case None =>
+          errors += "{{ rule.description }}: {{ field }} is required"
+        case _ => ()
+      }
+{% endfor %}
+    }
+{% endif %}
+    errors.result()
+  }
+{% endfor %}
+}

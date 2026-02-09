@@ -2,6 +2,7 @@ id: https://example.org/test-schema
 name: test_schema
 prefixes:
   linkml: https://w3id.org/linkml/
+  schema: http://schema.org/
 
 imports:
   - linkml:types
@@ -14,10 +15,15 @@ types:
 
 enums:
   Status:
+    description: The status of an entity
     permissible_values:
       active:
+        description: Entity is currently active
+        meaning: schema:ActiveActionStatus
       inactive:
+        description: Entity is no longer active
       pending:
+        description: Entity is awaiting activation
 
   Color:
     permissible_values:
@@ -28,6 +34,9 @@ enums:
 classes:
   NamedThing:
     mixin: true
+    description: A generic named entity
+    exact_mappings:
+      - schema:Thing
     slots:
       - id
       - name
@@ -41,15 +50,73 @@ classes:
     is_a: NamedThing
     mixins:
       - HasStatus
+    description: A person (alive, dead, undead, or fictional)
+    close_mappings:
+      - schema:Person
+    deprecated: Use Individual instead
     slots:
       - age
       - email
       - scores
+    slot_usage:
+      email:
+        required: true
+        pattern: "^\\S+@\\S+\\.\\S+$"
+      age:
+        minimum_value: 0
+        maximum_value: 200
+      scores:
+        minimum_cardinality: 0
+        maximum_cardinality: 10
+    unique_keys:
+      person_name_email:
+        unique_key_slots:
+          - name
+          - email
+    rules:
+      - preconditions:
+          slot_conditions:
+            age:
+              minimum_value: 18
+        postconditions:
+          slot_conditions:
+            status:
+              equals_string: active
+        description: Adults must be active
 
   Organization:
     slots:
       - name
       - founded_date
+
+  LivingThing:
+    abstract: true
+    tree_root: true
+    description: A living organism
+    children_are_mutually_disjoint: true
+
+  Animal:
+    is_a: LivingThing
+    slots:
+      - name
+
+  Plant:
+    is_a: LivingThing
+    slots:
+      - name
+
+  Shape:
+    union_of:
+      - Circle
+      - Square
+
+  Circle:
+    slots:
+      - name
+
+  Square:
+    slots:
+      - name
 
 slots:
   id:
