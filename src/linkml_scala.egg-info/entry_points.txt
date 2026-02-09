@@ -1,0 +1,5 @@
+[console_scripts]
+gen-scala = linkml_scala.scalagen:cli
+
+[linkml.generators]
+scala = linkml_scala.scalagen:ScalaGenerator

@@ -1,0 +1,5 @@
+enum {{ name }} {
+{% for value in values %}
+  case {{ value }}
+{% endfor %}
+}

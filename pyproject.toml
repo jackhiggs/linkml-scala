@@ -1,0 +1,31 @@
+[build-system]
+requires = ["setuptools>=68.0", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "linkml-scala"
+version = "0.1.0"
+description = "LinkML generator for Scala 3 case classes and traits"
+requires-python = ">=3.9"
+dependencies = [
+    "linkml>=1.9",
+    "jinja2>=3.0",
+    "click>=8.0",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=7.0",
+]
+
+[project.scripts]
+gen-scala = "linkml_scala.scalagen:cli"
+
+[project.entry-points."linkml.generators"]
+scala = "linkml_scala.scalagen:ScalaGenerator"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.setuptools.package-data]
+linkml_scala = ["*.yaml", "templates/*.jinja2"]

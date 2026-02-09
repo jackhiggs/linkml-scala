@@ -1,0 +1,55 @@
+id: https://w3id.org/linkml-scala/metamodel
+name: scala_metamodel
+prefixes:
+  linkml: https://w3id.org/linkml/
+  scala_meta: https://w3id.org/linkml-scala/
+
+imports:
+  - linkml:types
+
+classes:
+  OperationDefinition:
+    description: A method/operation on a trait or class
+    attributes:
+      name:
+        range: string
+        required: true
+      parameters:
+        range: ParameterDefinition
+        multivalued: true
+        inlined_as_list: true
+      return_type:
+        range: string
+      is_abstract:
+        range: boolean
+        description: If true, no default implementation
+      body:
+        range: string
+        description: Optional default implementation code
+
+  ParameterDefinition:
+    description: A parameter to an operation
+    attributes:
+      name:
+        range: string
+        required: true
+      range:
+        range: string
+        required: true
+      default_value:
+        range: string
+
+  ScalaClassAnnotation:
+    description: Extended annotations for Scala generation
+    class_uri: scala_meta:ScalaClassAnnotation
+    attributes:
+      operations:
+        range: OperationDefinition
+        multivalued: true
+        inlined_as_list: true
+      is_interface:
+        range: boolean
+        description: Force generation as trait even if not a mixin
+      companion_object:
+        range: boolean
+        description: Generate a companion object

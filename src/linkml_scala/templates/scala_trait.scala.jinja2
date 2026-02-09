@@ -1,0 +1,11 @@
+trait {{ name }}{% if parent %} extends {{ parent }}{% endif %}{% for m in mixins %} with {{ m }}{% endfor %} {
+{% for field in fields %}
+  def {{ field.name }}: {{ field.scala_type }}
+{% endfor %}
+{% for op in operations %}
+  def {{ op.name }}({{ op.params_str }}): {{ op.return_type }}{% if op.body %} = {
+    {{ op.body }}
+  }{% endif %}
+
+{% endfor %}
+}

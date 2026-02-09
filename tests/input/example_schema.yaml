@@ -1,0 +1,72 @@
+id: https://example.org/test-schema
+name: test_schema
+prefixes:
+  linkml: https://w3id.org/linkml/
+
+imports:
+  - linkml:types
+
+default_range: string
+
+types:
+  Identifier:
+    typeof: string
+
+enums:
+  Status:
+    permissible_values:
+      active:
+      inactive:
+      pending:
+
+  Color:
+    permissible_values:
+      red:
+      green:
+      blue:
+
+classes:
+  NamedThing:
+    mixin: true
+    slots:
+      - id
+      - name
+
+  HasStatus:
+    mixin: true
+    slots:
+      - status
+
+  Person:
+    is_a: NamedThing
+    mixins:
+      - HasStatus
+    slots:
+      - age
+      - email
+      - scores
+
+  Organization:
+    slots:
+      - name
+      - founded_date
+
+slots:
+  id:
+    range: string
+    required: true
+    identifier: true
+  name:
+    range: string
+    required: true
+  status:
+    range: Status
+  age:
+    range: integer
+  email:
+    range: string
+  scores:
+    range: float
+    multivalued: true
+  founded_date:
+    range: date
