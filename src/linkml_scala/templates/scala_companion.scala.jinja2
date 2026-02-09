@@ -94,6 +94,16 @@ object {{ name }} {
       }
 {% endfor %}
     }
+{% else %}
+{% for field, op, value in rule.postconditions %}
+    instance.{{ field }} match {
+      case Some(v) if !(v {{ op }} {{ value }}) =>
+        errors += "{{ rule.description }}: {{ field }} must {{ op }} {{ value }}"
+      case None =>
+        errors += "{{ rule.description }}: {{ field }} is required"
+      case _ => ()
+    }
+{% endfor %}
 {% endif %}
     errors.result()
   }

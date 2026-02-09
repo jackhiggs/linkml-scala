@@ -18,8 +18,7 @@ class TestRuleExtraction:
         sv = self.gen._get_schemaview()
         cls = sv.get_class("Person")
         rules = self.gen._get_rules(cls)
-        assert len(rules) == 1
-        assert rules[0].description == "Adults must be active"
+        assert len(rules) == 3
 
     def test_rule_preconditions(self):
         sv = self.gen._get_schemaview()
@@ -27,7 +26,6 @@ class TestRuleExtraction:
         rules = self.gen._get_rules(cls)
         rule = rules[0]
         assert len(rule.preconditions) > 0
-        # age >= 18
         field, op, value = rule.preconditions[0]
         assert field == "age"
         assert op == ">="
@@ -51,6 +49,53 @@ class TestRuleExtraction:
         assert len(rules) == 0
 
 
+class TestMultipleRules:
+    def setup_method(self):
+        self.gen = ScalaGenerator(EXAMPLE_SCHEMA)
+
+    def test_three_rules_on_person(self):
+        sv = self.gen._get_schemaview()
+        cls = sv.get_class("Person")
+        rules = self.gen._get_rules(cls)
+        assert len(rules) == 3
+        assert rules[0].description == "Adults must be active"
+        assert rules[1].description == "Inactive must have zero age"
+        assert rules[2].description == "Name always required value"
+
+    def test_equals_string_precondition(self):
+        sv = self.gen._get_schemaview()
+        cls = sv.get_class("Person")
+        rules = self.gen._get_rules(cls)
+        rule = rules[1]  # Inactive must have zero age
+        assert len(rule.preconditions) == 1
+        field, op, value = rule.preconditions[0]
+        assert field == "status"
+        assert op == "=="
+        assert '"inactive"' in value
+
+    def test_maximum_value_postcondition(self):
+        sv = self.gen._get_schemaview()
+        cls = sv.get_class("Person")
+        rules = self.gen._get_rules(cls)
+        rule = rules[1]  # Inactive must have zero age
+        assert len(rule.postconditions) == 1
+        field, op, value = rule.postconditions[0]
+        assert field == "age"
+        assert op == "<="
+        assert value == "0"
+
+    def test_rule_without_preconditions(self):
+        sv = self.gen._get_schemaview()
+        cls = sv.get_class("Person")
+        rules = self.gen._get_rules(cls)
+        rule = rules[2]  # Name always required value
+        assert len(rule.preconditions) == 0
+        assert len(rule.postconditions) == 1
+        field, op, value = rule.postconditions[0]
+        assert field == "name"
+        assert op == "=="
+
+
 class TestRuleCodeGeneration:
     def setup_method(self):
         self.gen = ScalaGenerator(EXAMPLE_SCHEMA)
@@ -72,3 +117,41 @@ class TestRuleCodeGeneration:
         cls = sv.get_class("Person")
         result = self.gen.generate_case_class(cls)
         assert "Adults must be active" in result
+
+    def test_all_rule_methods_generated(self):
+        sv = self.gen._get_schemaview()
+        cls = sv.get_class("Person")
+        result = self.gen.generate_case_class(cls)
+        assert "adultsMustBeActive" in result
+        assert "inactiveMustHaveZeroAge" in result
+        assert "nameAlwaysRequiredValue" in result
+
+    def test_rule_method_signature(self):
+        sv = self.gen._get_schemaview()
+        cls = sv.get_class("Person")
+        result = self.gen.generate_case_class(cls)
+        assert "def adultsMustBeActive(instance: Person): List[String]" in result
+        assert "def inactiveMustHaveZeroAge(instance: Person): List[String]" in result
+
+    def test_rule_with_equals_string_precondition_generates_match(self):
+        sv = self.gen._get_schemaview()
+        cls = sv.get_class("Person")
+        result = self.gen.generate_case_class(cls)
+        # The inactive rule should check status == "inactive"
+        assert '"inactive"' in result
+
+    def test_postcondition_only_rule_no_preconditions_block(self):
+        sv = self.gen._get_schemaview()
+        cls = sv.get_class("Person")
+        result = self.gen.generate_case_class(cls)
+        # The "Name always required value" rule has no preconditions
+        # It should still generate a method
+        assert "nameAlwaysRequiredValue" in result
+
+    def test_companion_contains_all_rule_docs(self):
+        sv = self.gen._get_schemaview()
+        cls = sv.get_class("Person")
+        result = self.gen.generate_case_class(cls)
+        assert "/** Adults must be active */" in result
+        assert "/** Inactive must have zero age */" in result
+        assert "/** Name always required value */" in result

@@ -317,6 +317,8 @@ class ScalaGenerator(Generator):
                             rc.postconditions.append((self._to_camel_case(slot_name), "==", f'"{cond.equals_string}"'))
                         if getattr(cond, "minimum_value", None) is not None:
                             rc.postconditions.append((self._to_camel_case(slot_name), ">=", str(cond.minimum_value)))
+                        if getattr(cond, "maximum_value", None) is not None:
+                            rc.postconditions.append((self._to_camel_case(slot_name), "<=", str(cond.maximum_value)))
             rules.append(rc)
         return rules
 

@@ -83,6 +83,20 @@ classes:
             status:
               equals_string: active
         description: Adults must be active
+      - preconditions:
+          slot_conditions:
+            status:
+              equals_string: inactive
+        postconditions:
+          slot_conditions:
+            age:
+              maximum_value: 0
+        description: Inactive must have zero age
+      - postconditions:
+          slot_conditions:
+            name:
+              equals_string: required_name
+        description: Name always required value
 
   Organization:
     slots:
