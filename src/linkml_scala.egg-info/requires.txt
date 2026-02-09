@@ -1,6 +1,0 @@
-linkml>=1.9
-jinja2>=3.0
-click>=8.0
-
-[dev]
-pytest>=7.0
