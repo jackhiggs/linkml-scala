@@ -1,5 +1,7 @@
 # linkml-scala
 
+[![CI](https://github.com/jackhiggs/linkml-scala/actions/workflows/ci.yml/badge.svg)](https://github.com/jackhiggs/linkml-scala/actions/workflows/ci.yml)
+
 A [LinkML](https://linkml.io/) code generator that produces **Scala 3** case classes, traits, and enums from LinkML schemas. Includes metamodel extensions for defining **interface operations** (methods on traits).
 
 ## Installation
