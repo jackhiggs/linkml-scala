@@ -132,6 +132,66 @@ classes:
     slots:
       - name
 
+  Employee:
+    slots:
+      - name
+      - age
+      - department
+      - salary
+      - certifications
+      - badge_number
+    slot_usage:
+      salary:
+        equals_number: 50000
+      certifications:
+        exact_cardinality: 3
+      badge_number:
+        value_presence: PRESENT
+    rules:
+      - preconditions:
+          slot_conditions:
+            department:
+              equals_string: engineering
+        postconditions:
+          slot_conditions:
+            salary:
+              minimum_value: 60000
+        elseconditions:
+          slot_conditions:
+            salary:
+              minimum_value: 40000
+        description: Engineering salary rule
+      - preconditions:
+          slot_conditions:
+            age:
+              minimum_value: 18
+        postconditions:
+          slot_conditions:
+            department:
+              equals_string: active
+        description: Deactivated rule example
+        deactivated: true
+      - preconditions:
+          slot_conditions:
+            department:
+              equals_string: sales
+        postconditions:
+          slot_conditions:
+            salary:
+              equals_number: 45000
+        description: Sales salary check
+        bidirectional: true
+      - preconditions:
+          slot_conditions:
+            age:
+              minimum_value: 21
+        postconditions:
+          slot_conditions:
+            department:
+              equals_string: senior
+        description: Senior eligibility
+        open_world: true
+
 slots:
   id:
     range: string
@@ -151,3 +211,12 @@ slots:
     multivalued: true
   founded_date:
     range: date
+  department:
+    range: string
+  salary:
+    range: integer
+  certifications:
+    range: string
+    multivalued: true
+  badge_number:
+    range: string

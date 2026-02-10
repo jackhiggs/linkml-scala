@@ -155,3 +155,103 @@ class TestRuleCodeGeneration:
         assert "/** Adults must be active */" in result
         assert "/** Inactive must have zero age */" in result
         assert "/** Name always required value */" in result
+
+
+class TestDeactivatedRules:
+    def setup_method(self):
+        self.gen = ScalaGenerator(EXAMPLE_SCHEMA)
+
+    def test_deactivated_rule_skipped(self):
+        sv = self.gen._get_schemaview()
+        cls = sv.get_class("Employee")
+        rules = self.gen._get_rules(cls)
+        names = [r.name for r in rules]
+        assert "deactivatedRuleExample" not in names
+
+    def test_active_rules_present(self):
+        sv = self.gen._get_schemaview()
+        cls = sv.get_class("Employee")
+        rules = self.gen._get_rules(cls)
+        names = [r.name for r in rules]
+        assert "engineeringSalaryRule" in names
+        assert "salesSalaryCheck" in names
+
+
+class TestElseconditions:
+    def setup_method(self):
+        self.gen = ScalaGenerator(EXAMPLE_SCHEMA)
+
+    def test_elseconditions_extracted(self):
+        sv = self.gen._get_schemaview()
+        cls = sv.get_class("Employee")
+        rules = self.gen._get_rules(cls)
+        rule = next(r for r in rules if r.name == "engineeringSalaryRule")
+        assert len(rule.elseconditions) > 0
+        field, op, value = rule.elseconditions[0]
+        assert field == "salary"
+        assert op == ">="
+
+    def test_else_branch_in_codegen(self):
+        sv = self.gen._get_schemaview()
+        cls = sv.get_class("Employee")
+        result = self.gen.generate_case_class(cls)
+        assert "} else {" in result
+
+
+class TestBidirectionalRules:
+    def setup_method(self):
+        self.gen = ScalaGenerator(EXAMPLE_SCHEMA)
+
+    def test_bidirectional_flag(self):
+        sv = self.gen._get_schemaview()
+        cls = sv.get_class("Employee")
+        rules = self.gen._get_rules(cls)
+        rule = next(r for r in rules if r.name == "salesSalaryCheck")
+        assert rule.bidirectional is True
+
+    def test_reverse_method_generated(self):
+        sv = self.gen._get_schemaview()
+        cls = sv.get_class("Employee")
+        result = self.gen.generate_case_class(cls)
+        assert "salesSalaryCheckReverse" in result
+        assert "(reverse)" in result
+
+
+class TestEqualsNumberInRules:
+    def setup_method(self):
+        self.gen = ScalaGenerator(EXAMPLE_SCHEMA)
+
+    def test_equals_number_extracted(self):
+        sv = self.gen._get_schemaview()
+        cls = sv.get_class("Employee")
+        rules = self.gen._get_rules(cls)
+        rule = next(r for r in rules if r.name == "salesSalaryCheck")
+        assert len(rule.postconditions) > 0
+        field, op, value = rule.postconditions[0]
+        assert field == "salary"
+        assert op == "=="
+        assert "45000" in value
+
+    def test_equals_number_in_codegen(self):
+        sv = self.gen._get_schemaview()
+        cls = sv.get_class("Employee")
+        result = self.gen.generate_case_class(cls)
+        assert "45000" in result
+
+
+class TestOpenWorldRules:
+    def setup_method(self):
+        self.gen = ScalaGenerator(EXAMPLE_SCHEMA)
+
+    def test_open_world_flag(self):
+        sv = self.gen._get_schemaview()
+        cls = sv.get_class("Employee")
+        rules = self.gen._get_rules(cls)
+        rule = next(r for r in rules if r.name == "seniorEligibility")
+        assert rule.open_world is True
+
+    def test_open_world_comment_in_codegen(self):
+        sv = self.gen._get_schemaview()
+        cls = sv.get_class("Employee")
+        result = self.gen.generate_case_class(cls)
+        assert "// Note: open world assumption" in result

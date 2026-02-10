@@ -333,3 +333,49 @@ class TestSealedTraits:
         # Circle and Square should extend Shape
         assert "Circle" in result
         assert "Square" in result
+
+
+class TestNewConstraintValidations:
+    def setup_method(self):
+        self.gen = ScalaGenerator(EXAMPLE_SCHEMA)
+
+    def test_exact_cardinality_validation(self):
+        sv = self.gen._get_schemaview()
+        cls = sv.get_class("Employee")
+        result = self.gen.generate_case_class(cls)
+        assert "must have exactly 3 elements" in result
+        assert ".size != 3" in result
+
+    def test_value_presence_validation(self):
+        sv = self.gen._get_schemaview()
+        cls = sv.get_class("Employee")
+        result = self.gen.generate_case_class(cls)
+        assert "must be present" in result
+        assert ".isEmpty" in result
+
+    def test_equals_number_validation(self):
+        sv = self.gen._get_schemaview()
+        cls = sv.get_class("Employee")
+        result = self.gen.generate_case_class(cls)
+        assert "must equal 50000" in result
+
+    def test_equals_number_field_extraction(self):
+        sv = self.gen._get_schemaview()
+        cls = sv.get_class("Employee")
+        fields = self.gen._get_fields(cls)
+        salary_field = next(f for f in fields if f.name == "salary")
+        assert salary_field.equals_number == 50000.0
+
+    def test_exact_cardinality_field_extraction(self):
+        sv = self.gen._get_schemaview()
+        cls = sv.get_class("Employee")
+        fields = self.gen._get_fields(cls)
+        cert_field = next(f for f in fields if f.name == "certifications")
+        assert cert_field.exact_cardinality == 3
+
+    def test_value_presence_field_extraction(self):
+        sv = self.gen._get_schemaview()
+        cls = sv.get_class("Employee")
+        fields = self.gen._get_fields(cls)
+        badge_field = next(f for f in fields if f.name == "badgeNumber")
+        assert badge_field.value_presence == "PRESENT"

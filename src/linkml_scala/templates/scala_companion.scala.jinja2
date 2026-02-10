@@ -66,11 +66,40 @@ object {{ name }} {
       errors += "{{ field.name }} must be one of: {{ field.equals_string_in | join(', ') }}"
 {% endif %}
 {% endif %}
+{% if field.equals_number is not none %}
+{% if "Option[" in field.scala_type %}
+    if (!instance.{{ field.name }}.forall(_ == {{ field.equals_number }}))
+      errors += "{{ field.name }} must equal {{ field.equals_number }}"
+{% else %}
+    if (instance.{{ field.name }} != {{ field.equals_number }})
+      errors += "{{ field.name }} must equal {{ field.equals_number }}"
+{% endif %}
+{% endif %}
+{% if field.exact_cardinality is not none %}
+{% if "List[" in field.scala_type %}
+    if (instance.{{ field.name }}.size != {{ field.exact_cardinality }})
+      errors += "{{ field.name }} must have exactly {{ field.exact_cardinality }} elements"
+{% endif %}
+{% endif %}
+{% if field.value_presence == "PRESENT" %}
+{% if "Option[" in field.scala_type %}
+    if (instance.{{ field.name }}.isEmpty)
+      errors += "{{ field.name }} must be present"
+{% endif %}
+{% elif field.value_presence == "ABSENT" %}
+{% if "Option[" in field.scala_type %}
+    if (instance.{{ field.name }}.isDefined)
+      errors += "{{ field.name }} must be absent"
+{% endif %}
+{% endif %}
 {% endfor %}
     errors.result()
   }
 {% for rule in rules %}
 
+{% if rule.open_world %}
+  // Note: open world assumption — {{ rule.description }}
+{% endif %}
   /** {{ rule.description }} */
   def {{ rule.name }}(instance: {{ name }}): List[String] = {
     val errors = List.newBuilder[String]
@@ -93,7 +122,21 @@ object {{ name }} {
         case _ => ()
       }
 {% endfor %}
+{% if rule.elseconditions %}
+    } else {
+{% for field, op, value in rule.elseconditions %}
+      instance.{{ field }} match {
+        case Some(v) if !(v {{ op }} {{ value }}) =>
+          errors += "{{ rule.description }}: {{ field }} must {{ op }} {{ value }}"
+        case None =>
+          errors += "{{ rule.description }}: {{ field }} is required"
+        case _ => ()
+      }
+{% endfor %}
     }
+{% else %}
+    }
+{% endif %}
 {% else %}
 {% for field, op, value in rule.postconditions %}
     instance.{{ field }} match {
@@ -107,5 +150,44 @@ object {{ name }} {
 {% endif %}
     errors.result()
   }
+{% if rule.bidirectional %}
+
+  /** {{ rule.description }} (reverse) */
+  def {{ rule.name }}Reverse(instance: {{ name }}): List[String] = {
+    val errors = List.newBuilder[String]
+{% if rule.postconditions %}
+    val preconditionsMet =
+{% for field, op, value in rule.postconditions %}
+      instance.{{ field }} match {
+        case Some(v) => v {{ op }} {{ value }}
+        case None => false
+      }{% if not loop.last %} &&{% endif %}
+
+{% endfor %}
+    if (preconditionsMet) {
+{% for field, op, value in rule.preconditions %}
+      instance.{{ field }} match {
+        case Some(v) if !(v {{ op }} {{ value }}) =>
+          errors += "{{ rule.description }}: {{ field }} must {{ op }} {{ value }}"
+        case None =>
+          errors += "{{ rule.description }}: {{ field }} is required"
+        case _ => ()
+      }
+{% endfor %}
+    }
+{% else %}
+{% for field, op, value in rule.preconditions %}
+    instance.{{ field }} match {
+      case Some(v) if !(v {{ op }} {{ value }}) =>
+        errors += "{{ rule.description }}: {{ field }} must {{ op }} {{ value }}"
+      case None =>
+        errors += "{{ rule.description }}: {{ field }} is required"
+      case _ => ()
+    }
+{% endfor %}
+{% endif %}
+    errors.result()
+  }
+{% endif %}
 {% endfor %}
 }

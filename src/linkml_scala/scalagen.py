@@ -62,6 +62,9 @@ class ScalaField:
     maximum_cardinality: Optional[int] = None
     equals_string: str = ""
     equals_string_in: list[str] = field(default_factory=list)
+    equals_number: Optional[float] = None
+    exact_cardinality: Optional[int] = None
+    value_presence: str = ""  # "PRESENT", "ABSENT", or ""
 
 
 @dataclass
@@ -78,6 +81,10 @@ class RuleCheck:
     description: str
     preconditions: list[tuple[str, str, str]] = field(default_factory=list)  # (field, op, value)
     postconditions: list[tuple[str, str, str]] = field(default_factory=list)
+    elseconditions: list[tuple[str, str, str]] = field(default_factory=list)
+    deactivated: bool = False
+    bidirectional: bool = False
+    open_world: bool = False
 
 
 @dataclass
@@ -122,6 +129,20 @@ class ScalaGenerator(Generator):
         # Could be a class reference - use PascalCase
         return linkml_type
 
+    def _normalize_value_presence(self, vp) -> str:
+        """Extract a PRESENT/ABSENT string from a value_presence attribute."""
+        if not vp:
+            return ""
+        # Could be a PermissibleValue, enum, or string
+        if hasattr(vp, "text"):
+            return str(vp.text).upper()
+        s = str(vp).upper()
+        if "PRESENT" in s:
+            return "PRESENT"
+        if "ABSENT" in s:
+            return "ABSENT"
+        return s
+
     def _slot_to_field(self, slot: SlotDefinition, cls: ClassDefinition | None = None) -> ScalaField:
         """Convert a LinkML slot to a Scala field descriptor."""
         base_type = self.map_type(str(slot.range) if slot.range else "string")
@@ -135,6 +156,9 @@ class ScalaGenerator(Generator):
         effective_max_card = getattr(slot, "maximum_cardinality", None)
         effective_equals_string = getattr(slot, "equals_string", None) or ""
         effective_equals_string_in = list(getattr(slot, "equals_string_in", None) or [])
+        effective_equals_number = getattr(slot, "equals_number", None)
+        effective_exact_cardinality = getattr(slot, "exact_cardinality", None)
+        effective_value_presence = self._normalize_value_presence(getattr(slot, "value_presence", None))
         effective_identifier = getattr(slot, "identifier", False) or getattr(slot, "key", False)
         effective_description = getattr(slot, "description", None) or ""
 
@@ -157,6 +181,13 @@ class ScalaGenerator(Generator):
                     effective_equals_string = usage.equals_string
                 if getattr(usage, "equals_string_in", None):
                     effective_equals_string_in = list(usage.equals_string_in)
+                if getattr(usage, "equals_number", None) is not None:
+                    effective_equals_number = usage.equals_number
+                if getattr(usage, "exact_cardinality", None) is not None:
+                    effective_exact_cardinality = usage.exact_cardinality
+                vp = getattr(usage, "value_presence", None)
+                if vp:
+                    effective_value_presence = self._normalize_value_presence(vp)
 
         if slot.multivalued:
             scala_type = f"List[{base_type}]"
@@ -181,6 +212,9 @@ class ScalaGenerator(Generator):
             maximum_cardinality=int(effective_max_card) if effective_max_card is not None else None,
             equals_string=effective_equals_string,
             equals_string_in=effective_equals_string_in,
+            equals_number=float(effective_equals_number) if effective_equals_number is not None else None,
+            exact_cardinality=int(effective_exact_cardinality) if effective_exact_cardinality is not None else None,
+            value_presence=effective_value_presence,
         )
 
     def _to_camel_case(self, name: str) -> str:
@@ -290,35 +324,55 @@ class ScalaGenerator(Generator):
                     keys.append(f"Unique key: ({', '.join(slots)})")
         return keys
 
+    def _extract_slot_conditions(self, class_expr) -> list[tuple[str, str, str]]:
+        """Extract slot conditions from a class expression (pre/post/else conditions).
+
+        Returns list of (field_name, operator, value) tuples.
+        """
+        conditions = []
+        if class_expr is None:
+            return conditions
+        if getattr(class_expr, "slot_conditions", None):
+            for slot_name, cond in class_expr.slot_conditions.items():
+                field_name = self._to_camel_case(slot_name)
+                if getattr(cond, "minimum_value", None) is not None:
+                    conditions.append((field_name, ">=", str(cond.minimum_value)))
+                if getattr(cond, "maximum_value", None) is not None:
+                    conditions.append((field_name, "<=", str(cond.maximum_value)))
+                if getattr(cond, "equals_string", None):
+                    conditions.append((field_name, "==", f'"{cond.equals_string}"'))
+                if getattr(cond, "equals_number", None) is not None:
+                    conditions.append((field_name, "==", str(cond.equals_number)))
+        # Recurse into combinators on the class expression
+        for combinator in ("any_of", "all_of", "exactly_one_of", "none_of"):
+            sub_exprs = getattr(class_expr, combinator, None)
+            if sub_exprs:
+                for sub_expr in sub_exprs:
+                    conditions.extend(self._extract_slot_conditions(sub_expr))
+        return conditions
+
     def _get_rules(self, cls: ClassDefinition) -> list[RuleCheck]:
         """Extract rules from a class definition."""
         rules = []
         if not getattr(cls, "rules", None):
             return rules
         for i, rule in enumerate(cls.rules):
+            # Skip deactivated rules
+            if getattr(rule, "deactivated", False):
+                continue
             desc = getattr(rule, "description", None) or f"rule_{i}"
             name = self._to_camel_case(desc.replace(" ", "_").lower())
-            rc = RuleCheck(name=name, description=desc)
-            if getattr(rule, "preconditions", None):
-                pre = rule.preconditions
-                if getattr(pre, "slot_conditions", None):
-                    for slot_name, cond in pre.slot_conditions.items():
-                        if getattr(cond, "minimum_value", None) is not None:
-                            rc.preconditions.append((self._to_camel_case(slot_name), ">=", str(cond.minimum_value)))
-                        if getattr(cond, "maximum_value", None) is not None:
-                            rc.preconditions.append((self._to_camel_case(slot_name), "<=", str(cond.maximum_value)))
-                        if getattr(cond, "equals_string", None):
-                            rc.preconditions.append((self._to_camel_case(slot_name), "==", f'"{cond.equals_string}"'))
-            if getattr(rule, "postconditions", None):
-                post = rule.postconditions
-                if getattr(post, "slot_conditions", None):
-                    for slot_name, cond in post.slot_conditions.items():
-                        if getattr(cond, "equals_string", None):
-                            rc.postconditions.append((self._to_camel_case(slot_name), "==", f'"{cond.equals_string}"'))
-                        if getattr(cond, "minimum_value", None) is not None:
-                            rc.postconditions.append((self._to_camel_case(slot_name), ">=", str(cond.minimum_value)))
-                        if getattr(cond, "maximum_value", None) is not None:
-                            rc.postconditions.append((self._to_camel_case(slot_name), "<=", str(cond.maximum_value)))
+            bidirectional = bool(getattr(rule, "bidirectional", False))
+            open_world = bool(getattr(rule, "open_world", False))
+            rc = RuleCheck(
+                name=name,
+                description=desc,
+                bidirectional=bidirectional,
+                open_world=open_world,
+            )
+            rc.preconditions = self._extract_slot_conditions(getattr(rule, "preconditions", None))
+            rc.postconditions = self._extract_slot_conditions(getattr(rule, "postconditions", None))
+            rc.elseconditions = self._extract_slot_conditions(getattr(rule, "elseconditions", None))
             rules.append(rc)
         return rules
 
@@ -330,6 +384,10 @@ class ScalaGenerator(Generator):
             if f.minimum_cardinality is not None or f.maximum_cardinality is not None:
                 return True
             if f.equals_string or f.equals_string_in:
+                return True
+            if f.equals_number is not None or f.exact_cardinality is not None:
+                return True
+            if f.value_presence:
                 return True
         return False
 
