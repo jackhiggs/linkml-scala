@@ -39,6 +39,13 @@ TYPE_MAP = {
     "objectidentifier": "java.net.URI",
 }
 
+# Scala types that need custom circe codecs (no built-in support)
+CUSTOM_CODEC_TYPES = {
+    "java.time.LocalDate",
+    "java.time.Instant",
+    "java.net.URI",
+}
+
 MAPPING_CATEGORIES = [
     ("exact_mappings", "Exact mapping"),
     ("close_mappings", "Close mapping"),
@@ -533,6 +540,18 @@ class ScalaGenerator(Generator):
                 parents.append(self._to_pascal_case(other.name))
         return parents
 
+    def _get_custom_codec_types(self) -> set[str]:
+        """Return the set of Scala types used in the schema that need custom circe codecs."""
+        sv = self._get_schemaview()
+        used = set()
+        for slot_name in sv.all_slots():
+            slot = sv.get_slot(slot_name)
+            if slot and slot.range:
+                scala_type = self.map_type(str(slot.range))
+                if scala_type in CUSTOM_CODEC_TYPES:
+                    used.add(scala_type)
+        return used
+
     def serialize(self, **kwargs) -> str:
         """Generate complete Scala source from the schema."""
         sv = self._get_schemaview()
@@ -549,6 +568,10 @@ class ScalaGenerator(Generator):
                 "import io.circe.{Decoder, Encoder}\n"
                 "import io.circe.generic.semiauto.{deriveDecoder, deriveEncoder}"
             )
+            custom_types = self._get_custom_codec_types()
+            if custom_types:
+                template = self.jinja_env.get_template("scala_codec_implicits.scala.jinja2")
+                parts.append(template.render(types=sorted(custom_types)))
 
         # Type aliases
         for type_name, typedef in (schema.types or {}).items():
@@ -637,11 +660,14 @@ class ScalaGenerator(Generator):
                     "has_validation": has_validation,
                 })
 
+        custom_types = sorted(self._get_custom_codec_types())
+
         template = self.jinja_env.get_template("scala_codecs.scala.jinja2")
         return template.render(
             package=pkg,
             enums=enums,
             case_classes=case_classes,
+            custom_types=custom_types,
         )
 
 

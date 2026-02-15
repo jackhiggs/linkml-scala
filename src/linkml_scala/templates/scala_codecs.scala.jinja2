@@ -4,6 +4,24 @@ import io.circe.{Decoder, Encoder}
 import io.circe.generic.semiauto.{deriveDecoder, deriveEncoder}
 
 object Codecs {
+{% if "java.net.URI" in custom_types %}
+  implicit val uriDecoder: Decoder[java.net.URI] =
+    Decoder.decodeString.map(java.net.URI.create)
+  implicit val uriEncoder: Encoder[java.net.URI] =
+    Encoder.encodeString.contramap(_.toString)
+{% endif %}
+{% if "java.time.LocalDate" in custom_types %}
+  implicit val localDateDecoder: Decoder[java.time.LocalDate] =
+    Decoder.decodeString.map(java.time.LocalDate.parse)
+  implicit val localDateEncoder: Encoder[java.time.LocalDate] =
+    Encoder.encodeString.contramap(_.toString)
+{% endif %}
+{% if "java.time.Instant" in custom_types %}
+  implicit val instantDecoder: Decoder[java.time.Instant] =
+    Decoder.decodeString.map(java.time.Instant.parse)
+  implicit val instantEncoder: Encoder[java.time.Instant] =
+    Encoder.encodeString.contramap(_.toString)
+{% endif %}
 {% for enum in enums %}
   implicit val {{ enum.name[0]|lower }}{{ enum.name[1:] }}Decoder: Decoder[{{ enum.name }}] =
     Decoder.decodeString.emap {

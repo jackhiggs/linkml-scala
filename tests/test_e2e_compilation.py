@@ -730,3 +730,72 @@ class TestCodecsSeparateCompilation:
             f"Compilation failed:\n{result.stderr}\n\n"
             f"Model.scala:\n{main_code}\n\nCodecs.scala:\n{codecs_code}"
         )
+
+
+CODEC_SCHEMA_CUSTOM_TYPES = """\
+id: https://example.org/customtypes
+name: customtypes
+prefixes:
+  linkml: https://w3id.org/linkml/
+imports:
+  - linkml:types
+default_range: string
+
+classes:
+  Event:
+    slots:
+      - id
+      - start_date
+      - created_at
+      - homepage
+
+slots:
+  id:
+    range: string
+    required: true
+  start_date:
+    range: date
+  created_at:
+    range: datetime
+  homepage:
+    range: uri
+"""
+
+
+@_skip_no_circe()
+class TestCustomTypeCodecsCompilation:
+    """Verify that custom type codecs (URI, LocalDate, Instant) compile."""
+
+    def test_inline_custom_types_compile(self, tmp_path):
+        schema_file = tmp_path / "schema.yaml"
+        schema_file.write_text(CODEC_SCHEMA_CUSTOM_TYPES)
+        gen = ScalaGenerator(str(schema_file), codecs="inline")
+        code = gen.serialize()
+        assert "object CodecImplicits" in code
+        assert "uriDecoder" in code
+        assert "localDateDecoder" in code
+        assert "instantDecoder" in code
+        result = compile_scala_with_circe(code, tmp_path)
+        assert result.returncode == 0, f"Compilation failed:\n{result.stderr}\n\nGenerated code:\n{code}"
+
+    def test_separate_custom_types_compile(self, tmp_path):
+        schema_file = tmp_path / "schema.yaml"
+        schema_file.write_text(CODEC_SCHEMA_CUSTOM_TYPES)
+        gen = ScalaGenerator(str(schema_file), codecs="separate")
+        main_code = gen.serialize()
+        codecs_code = gen.serialize_codecs()
+        assert "uriDecoder" in codecs_code
+        assert "localDateDecoder" in codecs_code
+        assert "instantDecoder" in codecs_code
+
+        (tmp_path / "Model.scala").write_text(main_code)
+        (tmp_path / "Codecs.scala").write_text(codecs_code)
+        cp = _get_circe_classpath()
+        result = subprocess.run(
+            [SCALAC_PATH, "-classpath", cp, str(tmp_path / "Model.scala"), str(tmp_path / "Codecs.scala")],
+            capture_output=True, text=True, cwd=str(tmp_path), timeout=120,
+        )
+        assert result.returncode == 0, (
+            f"Compilation failed:\n{result.stderr}\n\n"
+            f"Model.scala:\n{main_code}\n\nCodecs.scala:\n{codecs_code}"
+        )

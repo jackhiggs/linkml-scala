@@ -314,3 +314,111 @@ class TestSeparateCodecs:
         # Person has no constraints, should use plain deriveDecoder
         assert "rawPersonDecoder" not in codecs
         assert "personDecoder: Decoder[Person] = deriveDecoder[Person]" in codecs
+
+
+SCHEMA_WITH_CUSTOM_TYPES = """\
+id: https://example.org/custom
+name: custom
+prefixes:
+  linkml: https://w3id.org/linkml/
+imports:
+  - linkml:types
+default_range: string
+
+classes:
+  Event:
+    slots:
+      - id
+      - start_date
+      - created_at
+      - homepage
+
+slots:
+  id:
+    range: string
+    required: true
+  start_date:
+    range: date
+  created_at:
+    range: datetime
+  homepage:
+    range: uri
+"""
+
+SCHEMA_NO_CUSTOM_TYPES = """\
+id: https://example.org/plain
+name: plain
+prefixes:
+  linkml: https://w3id.org/linkml/
+imports:
+  - linkml:types
+default_range: string
+
+classes:
+  Item:
+    slots:
+      - name
+      - count
+
+slots:
+  name:
+    range: string
+    required: true
+  count:
+    range: integer
+"""
+
+
+class TestCustomTypeCodecsInline:
+    def test_uri_codec(self):
+        gen = _make_gen(SCHEMA_WITH_CUSTOM_TYPES, codecs="inline")
+        result = gen.serialize()
+        assert "uriDecoder: Decoder[java.net.URI]" in result
+        assert "uriEncoder: Encoder[java.net.URI]" in result
+        assert "java.net.URI.create" in result
+
+    def test_local_date_codec(self):
+        gen = _make_gen(SCHEMA_WITH_CUSTOM_TYPES, codecs="inline")
+        result = gen.serialize()
+        assert "localDateDecoder: Decoder[java.time.LocalDate]" in result
+        assert "localDateEncoder: Encoder[java.time.LocalDate]" in result
+        assert "java.time.LocalDate.parse" in result
+
+    def test_instant_codec(self):
+        gen = _make_gen(SCHEMA_WITH_CUSTOM_TYPES, codecs="inline")
+        result = gen.serialize()
+        assert "instantDecoder: Decoder[java.time.Instant]" in result
+        assert "instantEncoder: Encoder[java.time.Instant]" in result
+        assert "java.time.Instant.parse" in result
+
+    def test_codec_implicits_object(self):
+        gen = _make_gen(SCHEMA_WITH_CUSTOM_TYPES, codecs="inline")
+        result = gen.serialize()
+        assert "object CodecImplicits" in result
+
+    def test_no_custom_codecs_when_not_needed(self):
+        gen = _make_gen(SCHEMA_NO_CUSTOM_TYPES, codecs="inline")
+        result = gen.serialize()
+        assert "CodecImplicits" not in result
+        assert "uriDecoder" not in result
+
+    def test_no_custom_codecs_when_codecs_none(self):
+        gen = _make_gen(SCHEMA_WITH_CUSTOM_TYPES, codecs="none")
+        result = gen.serialize()
+        assert "CodecImplicits" not in result
+
+
+class TestCustomTypeCodecsSeparate:
+    def test_custom_types_in_codecs_object(self):
+        gen = _make_gen(SCHEMA_WITH_CUSTOM_TYPES, codecs="separate")
+        codecs = gen.serialize_codecs()
+        assert "uriDecoder: Decoder[java.net.URI]" in codecs
+        assert "localDateDecoder: Decoder[java.time.LocalDate]" in codecs
+        assert "instantDecoder: Decoder[java.time.Instant]" in codecs
+
+    def test_no_custom_types_when_not_needed(self):
+        gen = _make_gen(SCHEMA_NO_CUSTOM_TYPES, codecs="separate")
+        codecs = gen.serialize_codecs()
+        assert "uriDecoder" not in codecs
+        assert "localDateDecoder" not in codecs
+        assert "instantDecoder" not in codecs
