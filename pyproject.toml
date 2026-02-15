@@ -6,7 +6,17 @@ build-backend = "setuptools.build_meta"
 name = "linkml-scala"
 version = "0.1.0"
 description = "LinkML generator for Scala 3 case classes and traits"
+readme = "README.md"
 requires-python = ">=3.9"
+license = "MIT"
+authors = [
+    {name = "Jack Higgs"},
+]
+classifiers = [
+    "Programming Language :: Python :: 3",
+    "License :: OSI Approved :: MIT License",
+    "Operating System :: OS Independent",
+]
 dependencies = [
     "linkml>=1.9",
     "jinja2>=3.0",
@@ -17,6 +27,11 @@ dependencies = [
 dev = [
     "pytest>=7.0",
 ]
+
+[project.urls]
+Homepage = "https://github.com/jackhiggs/linkml-scala"
+Repository = "https://github.com/jackhiggs/linkml-scala"
+Issues = "https://github.com/jackhiggs/linkml-scala/issues"
 
 [project.scripts]
 gen-scala = "linkml_scala.scalagen:cli"
