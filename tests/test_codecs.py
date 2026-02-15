@@ -173,6 +173,47 @@ class TestEnumCodecs:
         assert "object Status" not in result
 
 
+class TestYamlHelpers:
+    def test_case_class_has_yaml_helpers(self):
+        gen = _make_gen(BASIC_SCHEMA, codecs="inline")
+        result = gen.serialize()
+        person_obj = result[result.index("object Person"):]
+        assert "def fromYaml(yaml: String): Either[io.circe.Error, Person]" in person_obj
+        assert "io.circe.yaml.parser.parse(yaml).flatMap(_.as[Person])" in person_obj
+        assert "def toYaml(instance: Person): String" in person_obj
+        assert "io.circe.yaml.Printer().pretty(encoder(instance))" in person_obj
+
+    def test_case_class_has_json_helpers(self):
+        gen = _make_gen(BASIC_SCHEMA, codecs="inline")
+        result = gen.serialize()
+        person_obj = result[result.index("object Person"):]
+        assert "def fromJson(json: String): Either[io.circe.Error, Person]" in person_obj
+        assert "io.circe.parser.decode[Person](json)" in person_obj
+        assert "def toJson(instance: Person): String" in person_obj
+        assert "encoder(instance).noSpaces" in person_obj
+
+    def test_validated_class_has_yaml_helpers(self):
+        gen = _make_gen(SCHEMA_WITH_VALIDATION, codecs="inline")
+        result = gen.serialize()
+        assert "def fromYaml(yaml: String): Either[io.circe.Error, Record]" in result
+        assert "def toYaml(instance: Record): String" in result
+
+    def test_enum_has_json_helpers(self):
+        gen = _make_gen(BASIC_SCHEMA, codecs="inline")
+        result = gen.serialize()
+        status_obj = result[result.index("object Status"):]
+        assert "def fromJson(json: String): Either[io.circe.Error, Status]" in status_obj
+        assert "def toJson(instance: Status): String" in status_obj
+
+    def test_no_helpers_when_codecs_none(self):
+        gen = _make_gen(BASIC_SCHEMA, codecs="none")
+        result = gen.serialize()
+        assert "fromJson" not in result
+        assert "toJson" not in result
+        assert "fromYaml" not in result
+        assert "toYaml" not in result
+
+
 class TestMultipleClasses:
     def test_each_class_gets_codecs(self):
         schema = """\

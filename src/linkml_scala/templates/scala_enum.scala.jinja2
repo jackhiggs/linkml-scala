@@ -33,5 +33,10 @@ object {{ name }} {
       case {{ name }}.{{ value.name }} => "{{ value.linkml_name }}"
 {% endfor %}
     }
+
+  def fromJson(json: String): Either[io.circe.Error, {{ name }}] =
+    io.circe.parser.decode[{{ name }}](json)
+  def toJson(instance: {{ name }}): String =
+    encoder(instance).noSpaces
 }
 {% endif %}

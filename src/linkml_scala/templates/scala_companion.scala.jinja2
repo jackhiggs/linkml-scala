@@ -8,9 +8,27 @@ object {{ name }} {
     }
   }
   implicit val encoder: Encoder[{{ name }}] = deriveEncoder[{{ name }}]
+
+  def fromJson(json: String): Either[io.circe.Error, {{ name }}] =
+    io.circe.parser.decode[{{ name }}](json)
+  def toJson(instance: {{ name }}): String =
+    encoder(instance).noSpaces
+  def fromYaml(yaml: String): Either[io.circe.Error, {{ name }}] =
+    io.circe.yaml.parser.parse(yaml).flatMap(_.as[{{ name }}])
+  def toYaml(instance: {{ name }}): String =
+    io.circe.yaml.Printer().pretty(encoder(instance))
 {% elif codecs == "inline" %}
   implicit val decoder: Decoder[{{ name }}] = deriveDecoder[{{ name }}]
   implicit val encoder: Encoder[{{ name }}] = deriveEncoder[{{ name }}]
+
+  def fromJson(json: String): Either[io.circe.Error, {{ name }}] =
+    io.circe.parser.decode[{{ name }}](json)
+  def toJson(instance: {{ name }}): String =
+    encoder(instance).noSpaces
+  def fromYaml(yaml: String): Either[io.circe.Error, {{ name }}] =
+    io.circe.yaml.parser.parse(yaml).flatMap(_.as[{{ name }}])
+  def toYaml(instance: {{ name }}): String =
+    io.circe.yaml.Printer().pretty(encoder(instance))
 {% endif %}
 {% if has_validation %}
   def validate(instance: {{ name }}): List[String] = {
