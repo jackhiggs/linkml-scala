@@ -8,6 +8,8 @@ mixins, operations, sealed traits, companion object validation, and
 circe JSON/YAML codecs.
 """
 
+from __future__ import annotations
+
 import shutil
 import subprocess
 from pathlib import Path
