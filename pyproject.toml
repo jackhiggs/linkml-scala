@@ -24,6 +24,11 @@ gen-scala = "linkml_scala.scalagen:cli"
 [project.entry-points."linkml.generators"]
 scala = "linkml_scala.scalagen:ScalaGenerator"
 
+[tool.pytest.ini_options]
+markers = [
+    "e2e: end-to-end compilation tests requiring scalac",
+]
+
 [tool.setuptools.packages.find]
 where = ["src"]
 
