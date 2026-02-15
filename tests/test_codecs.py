@@ -118,14 +118,30 @@ class TestCaseClassCodecs:
         assert "object Person" in result
         assert "def validate" not in result
 
-    def test_codecs_with_validation(self):
-        """Case class with slot_usage should get both codecs and validate."""
+    def test_codecs_with_validation_uses_emap(self):
+        """Case class with slot_usage should get validated decoder via .emap."""
         gen = _make_gen(SCHEMA_WITH_VALIDATION, codecs="inline")
         result = gen.serialize()
         assert "object Record" in result
-        assert "implicit val decoder: Decoder[Record] = deriveDecoder[Record]" in result
+        # Should use rawDecoder + emap pattern, not plain deriveDecoder
+        assert "private val rawDecoder: Decoder[Record] = deriveDecoder[Record]" in result
+        assert "rawDecoder.emap" in result
+        assert "validate(instance)" in result
+        assert 'case Nil    => Right(instance)' in result
+        assert 'Left(errors.mkString("; "))' in result
         assert "implicit val encoder: Encoder[Record] = deriveEncoder[Record]" in result
         assert "def validate(instance: Record)" in result
+
+    def test_no_emap_without_constraints(self):
+        """Case class without constraints should use plain deriveDecoder."""
+        gen = _make_gen(BASIC_SCHEMA, codecs="inline")
+        result = gen.serialize()
+        assert "implicit val decoder: Decoder[Person] = deriveDecoder[Person]" in result
+        # Person companion should not have rawDecoder/emap
+        person_obj = result[result.index("object Person"):]
+        person_obj = person_obj[:person_obj.index("}") + 1]
+        assert "rawDecoder" not in person_obj
+        assert "emap" not in person_obj
 
 
 class TestEnumCodecs:

@@ -1,5 +1,14 @@
 object {{ name }} {
-{% if codecs == "inline" %}
+{% if codecs == "inline" and has_validation %}
+  private val rawDecoder: Decoder[{{ name }}] = deriveDecoder[{{ name }}]
+  implicit val decoder: Decoder[{{ name }}] = rawDecoder.emap { instance =>
+    validate(instance) match {
+      case Nil    => Right(instance)
+      case errors => Left(errors.mkString("; "))
+    }
+  }
+  implicit val encoder: Encoder[{{ name }}] = deriveEncoder[{{ name }}]
+{% elif codecs == "inline" %}
   implicit val decoder: Decoder[{{ name }}] = deriveDecoder[{{ name }}]
   implicit val encoder: Encoder[{{ name }}] = deriveEncoder[{{ name }}]
 {% endif %}
