@@ -4,16 +4,10 @@ These tests generate Scala 3 source code from LinkML schemas using the
 ScalaGenerator, write the output to temporary files, and compile with
 scalac. They verify that the generator produces syntactically valid
 Scala 3 for each major feature: basic classes, inheritance, enums,
-mixins, operations, sealed traits, and companion object validation.
-
-Known generator limitations documented inline:
-- The Jinja2 companion template emits unescaped double-quotes inside
-  string literals for rule methods that compare against string values.
-- The class template emits `with Mixin` without a preceding `extends`
-  when there is no is_a parent, which is invalid Scala 3 syntax.
+mixins, operations, sealed traits, companion object validation, and
+circe JSON/YAML codecs.
 """
 
-import re
 import shutil
 import subprocess
 from pathlib import Path

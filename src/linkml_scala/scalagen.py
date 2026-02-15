@@ -5,7 +5,7 @@ from __future__ import annotations
 import json
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import List, Optional, Union
+from typing import Optional
 
 import click
 from jinja2 import Environment, PackageLoader
@@ -91,7 +91,7 @@ class RuleCondition:
     error_value: str = ""  # escaped version of value for error messages
 
     def __iter__(self):
-        """Allow tuple unpacking for backward compat with (field, op, value)."""
+        """Support tuple unpacking: field, op, value = condition."""
         return iter((self.field, self.op, self.value))
 
 
@@ -131,8 +131,7 @@ class ScalaGenerator(Generator):
             lstrip_blocks=True,
         )
         self.package_name = kwargs.pop("package_name", None)
-        self.codecs = kwargs.pop("codecs", "none")  # "none" or "inline"
-        # Store but don't pass to super
+        self.codecs = kwargs.pop("codecs", "none")  # "none", "inline", or "separate"
         kwargs.pop("format", None)
         super().__init__(schema, **kwargs)
 
@@ -587,6 +586,18 @@ class ScalaGenerator(Generator):
                 parents.append(self._to_pascal_case(other.name))
         return parents
 
+    @staticmethod
+    def _inject_parent_type(code: str, parent: str) -> str:
+        """Inject a parent type into a case class's extends clause."""
+        if "extends" in code:
+            # Add as a mixin after existing extends
+            if "\n\n" in code:
+                return code.replace("\n\n", f" with {parent}\n\n", 1)
+            # Single-line case class (no companion)
+            idx = code.find(")")
+            return code[:idx + 1] + f" with {parent}" + code[idx + 1:]
+        return code.replace(")", f") extends {parent}", 1)
+
     def _get_custom_codec_types(self) -> set[str]:
         """Return the set of Scala types used in the schema that need custom circe codecs."""
         sv = self._get_schemaview()
@@ -643,33 +654,13 @@ class ScalaGenerator(Generator):
             parts.append(self.generate_trait(cls))
 
         for cls in case_classes:
-            # Add union_of parents as additional mixins
             union_parents = self._get_union_parents(cls)
-            if union_parents:
-                # Temporarily add union parents as mixins for generation
-                original_mixins = cls.mixins or []
-                cls.mixins = list(original_mixins) + [p for p in union_parents
-                                                       if p not in [self._to_pascal_case(m) for m in original_mixins]]
-                # We need the raw names for mixins, but union_parents are already PascalCase
-                # So we need to reverse-engineer or just handle in _get_mixins
-                # Actually, let's just inject into the template directly
-                cls.mixins = list(original_mixins)
-
             result = self.generate_case_class(cls)
 
-            # Inject union parent extends
-            if union_parents:
-                for up in union_parents:
-                    if f"extends {up}" not in result and f"with {up}" not in result:
-                        if "extends" in result:
-                            result = result.replace("\n\n", f" with {up}\n\n", 1)
-                            if f"with {up}" not in result:
-                                # Single-line case
-                                idx = result.find(")")
-                                suffix = result[idx+1:]
-                                result = result[:idx+1] + f" with {up}" + suffix if " extends " in result else result[:idx+1] + f" extends {up}" + suffix
-                        else:
-                            result = result.replace(")", f") extends {up}", 1)
+            # Inject union_of parent types into the extends clause
+            for up in union_parents:
+                if f"extends {up}" not in result and f"with {up}" not in result:
+                    result = self._inject_parent_type(result, up)
 
             parts.append(result)
 

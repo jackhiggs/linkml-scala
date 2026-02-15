@@ -1,8 +1,12 @@
 # linkml-scala
 
 [![CI](https://github.com/jackhiggs/linkml-scala/actions/workflows/ci.yml/badge.svg)](https://github.com/jackhiggs/linkml-scala/actions/workflows/ci.yml)
+[![Python 3.9+](https://img.shields.io/badge/python-3.9%2B-blue.svg)](https://www.python.org/downloads/)
+[![License: MIT](https://img.shields.io/badge/License-MIT-green.svg)](LICENSE)
 
-A [LinkML](https://linkml.io/) code generator that produces **Scala 3** case classes, traits, and enums from LinkML schemas. Supports ScalaDoc generation from descriptions and mappings, validation companion objects from slot constraints and rules, sealed trait hierarchies, and interface operations via annotations.
+A [LinkML](https://linkml.io/) code generator that produces idiomatic **Scala 3** from LinkML schemas:
+case classes, traits, enums, sealed hierarchies, companion-object validation,
+and optional [circe](https://circe.github.io/circe/) JSON/YAML codecs.
 
 ## Installation
 
@@ -18,7 +22,7 @@ cd linkml-scala
 pip install -e ".[dev]"
 ```
 
-## Usage
+## Quick Start
 
 ### CLI
 
@@ -26,8 +30,8 @@ pip install -e ".[dev]"
 gen-scala schema.yaml                          # print to stdout
 gen-scala schema.yaml -o output/Model.scala    # write to file
 gen-scala schema.yaml --package com.example     # custom package name
-gen-scala schema.yaml --codecs inline           # circe codecs in companions
-gen-scala schema.yaml --codecs separate -o out/Model.scala  # codecs in separate Codecs.scala
+gen-scala schema.yaml --codecs inline           # circe codecs in companion objects
+gen-scala schema.yaml --codecs separate -o out/Model.scala  # codecs in separate file
 ```
 
 ### Python API
@@ -38,7 +42,7 @@ from linkml_scala.scalagen import ScalaGenerator
 gen = ScalaGenerator("schema.yaml", package_name="com.example.model")
 scala_code = gen.serialize()
 
-# With codecs
+# With inline codecs
 gen = ScalaGenerator("schema.yaml", codecs="inline")
 scala_code = gen.serialize()
 
@@ -56,9 +60,9 @@ codecs_code = gen.serialize_codecs()
 | `ClassDefinition` with `mixin: true` | `trait Foo` |
 | `ClassDefinition` with `abstract: true` | `trait Foo` |
 | `abstract` + `children_are_mutually_disjoint` | `sealed trait Foo` |
-| `union_of` | `sealed trait Foo` (members extend it) |
+| `union_of` | `sealed trait` (members extend it) |
 | `is_a` | `extends Parent` |
-| `mixins` | `with Trait1 with Trait2` |
+| `mixins` | `extends Mixin1 with Mixin2` |
 | `SlotDefinition` (required) | `val name: Type` |
 | `SlotDefinition` (optional) | `val name: Option[Type] = None` |
 | `SlotDefinition` (multivalued) | `val name: List[Type] = List.empty` |
@@ -69,8 +73,8 @@ codecs_code = gen.serialize_codecs()
 | `deprecated` | `@deprecated` annotation |
 | `unique_keys` | `@note` in ScalaDoc |
 | `tree_root` | Documented in ScalaDoc |
-| `slot_usage` (pattern, min/max, cardinality) | Companion object `validate` method |
-| `rules` (preconditions/postconditions) | Named rule check methods in companion |
+| `slot_usage` constraints | Companion `validate` method |
+| `rules` (preconditions/postconditions) | Named rule-check methods |
 
 ### Type Mapping
 
@@ -83,7 +87,7 @@ codecs_code = gen.serialize_codecs()
 | `decimal` | `BigDecimal` |
 | `date` | `java.time.LocalDate` |
 | `datetime` | `java.time.Instant` |
-| `uri` | `java.net.URI` |
+| `uri` / `uriorcurie` | `java.net.URI` |
 
 ## Example
 
@@ -105,7 +109,7 @@ enums:
       active:
         description: Entity is currently active
         meaning: schema:ActiveActionStatus
-      inactive:
+      inactive: {}
 
 classes:
   NamedThing:
@@ -122,13 +126,10 @@ classes:
     description: A person
     close_mappings:
       - schema:Person
-    deprecated: Use Individual instead
     slots:
       - age
-      - email
+      - status
     slot_usage:
-      email:
-        pattern: "^\\S+@\\S+\\.\\S+$"
       age:
         minimum_value: 0
         maximum_value: 200
@@ -153,8 +154,8 @@ slots:
     required: true
   age:
     range: integer
-  email:
-    range: string
+  status:
+    range: Status
 ```
 
 Generates:
@@ -189,19 +190,16 @@ trait NamedThing {
  *
  * @see Close mapping: schema:Person
  */
-@deprecated
 case class Person(
   age: Option[Int] = None,
-  email: Option[String] = None,
   id: String,
-  name: String
+  name: String,
+  status: Option[Status] = None
 ) extends NamedThing
 
 object Person {
   def validate(instance: Person): List[String] = {
     val errors = List.newBuilder[String]
-    if (!instance.email.forall(_.matches("^\\S+@\\S+\\.\\S+$")))
-      errors += "email must match ^\\S+@\\S+\\.\\S+$"
     if (!instance.age.forall(v => v >= 0 && v <= 200))
       errors += "age must be between 0 and 200"
     errors.result()
@@ -217,8 +215,8 @@ object Person {
       }
     if (preconditionsMet) {
       instance.status match {
-        case Some(v) if !(v == "active") =>
-          errors += "Adults must be active: status must == \"active\""
+        case Some(v) if !(v == Status.Active) =>
+          errors += "Adults must be active: status must == active"
         case None =>
           errors += "Adults must be active: status is required"
         case _ => ()
@@ -254,28 +252,27 @@ Classes with `union_of` also generate sealed traits, with each member extending 
 
 ## Validation & Rules
 
-When classes have `slot_usage` constraints (pattern, minimum/maximum value, cardinality bounds, equals_string), a companion object with a `validate` method is generated that returns `List[String]` of error messages.
+When classes have `slot_usage` constraints (pattern, minimum/maximum value, cardinality bounds,
+equals_string), a companion object with a `validate` method is generated that returns
+`List[String]` of error messages.
 
-Class `rules` with `preconditions`/`postconditions` referencing `slot_conditions` generate named check methods in the companion object. Supported condition types:
+Class `rules` with `preconditions`/`postconditions` referencing `slot_conditions` generate
+named check methods in the companion object. Supported condition types:
 
 - `minimum_value` / `maximum_value` on numeric slots
-- `equals_string` for exact value matching
+- `equals_string` for exact value matching (enum-aware: generates `Status.Active` for enum fields)
+- `equals_number` for numeric equality
+- Bidirectional rules (generates forward and reverse check methods)
 - Rules without preconditions apply postconditions unconditionally
 
 ## Interface Operations
 
-You can define methods on traits using annotations with a JSON-encoded `scala` key.
-Operation return types follow standard LinkML slot conventions: `range` specifies
-the type (built-in or schema-defined class), `multivalued` wraps in `List[T]`,
-and `required: false` wraps in `Option[T]`:
+Traits can define abstract and concrete methods via annotations with a JSON-encoded `scala` key.
+Return types follow LinkML slot conventions: `range` specifies the type, `multivalued` wraps
+in `List[T]`, and `required: false` wraps in `Option[T]`:
 
 ```yaml
 classes:
-  Entity:
-    slots:
-      - id
-      - name
-
   Repository:
     mixin: true
     annotations:
@@ -299,8 +296,6 @@ classes:
             body: "0"
 ```
 
-Generates:
-
 ```scala
 trait Repository {
   def findById(id: String): Option[Entity]
@@ -313,13 +308,13 @@ trait Repository {
 
 ## JSON & YAML Codecs (circe)
 
-The `--codecs` flag generates [circe](https://circe.github.io/circe/) encoder/decoder instances
-and JSON/YAML loader/dumper helpers. Two modes are available:
+The `--codecs` flag generates [circe](https://circe.github.io/circe/) encoder/decoder
+instances and JSON/YAML helpers. Two modes are available:
 
 | Mode | Description |
 |------|-------------|
-| `--codecs inline` | Codecs and helpers in companion objects alongside the case classes |
-| `--codecs separate` | Codecs in a standalone `Codecs.scala` file; main file stays circe-free |
+| `--codecs inline` | Codecs in companion objects alongside case classes |
+| `--codecs separate` | Codecs in a standalone `Codecs.scala`; model file stays circe-free |
 
 ### Inline codecs
 
@@ -346,7 +341,7 @@ object Person {
 }
 ```
 
-Enums use string-based codecs that preserve the original LinkML permissible value names:
+Enums use string-based codecs preserving the original LinkML permissible value names:
 
 ```scala
 object Status {
@@ -362,16 +357,13 @@ object Status {
       case Status.Active   => "active"
       case Status.Inactive => "inactive"
     }
-
-  def fromJson(json: String): Either[io.circe.Error, Status] = ...
-  def toJson(instance: Status): String = ...
 }
 ```
 
 ### Validated decoders
 
-When a class has `slot_usage` constraints, the decoder automatically chains validation
-via `.emap`, rejecting invalid JSON/YAML at decode time:
+When a class has `slot_usage` constraints, the decoder chains validation via `.emap`,
+rejecting invalid JSON/YAML at decode time:
 
 ```scala
 object Record {
@@ -385,9 +377,15 @@ object Record {
   implicit val encoder: Encoder[Record] = deriveEncoder[Record]
 
   def validate(instance: Record): List[String] = { ... }
-  // fromJson, toJson, fromYaml, toYaml helpers as above
 }
 ```
+
+### Custom type codecs
+
+When a schema uses `date`, `datetime`, or `uri` ranges, the generator emits string-based
+circe codecs for `java.time.LocalDate`, `java.time.Instant`, and `java.net.URI` (types
+that circe doesn't handle out of the box). These are placed in a `CodecImplicits` object
+(inline mode) or directly in the `Codecs` object (separate mode).
 
 ### Separate codecs
 
@@ -403,15 +401,17 @@ All codecs live in a single `Codecs` object in `Codecs.scala`:
 object Codecs {
   implicit val personDecoder: Decoder[Person] = deriveDecoder[Person]
   implicit val personEncoder: Encoder[Person] = deriveEncoder[Person]
+
   def personFromJson(json: String): Either[io.circe.Error, Person] = ...
   def personToJson(instance: Person): String = ...
   def personFromYaml(yaml: String): Either[io.circe.Error, Person] = ...
   def personToYaml(instance: Person): String = ...
-  // ... codecs for all types
 }
 ```
 
 ### Required dependencies
+
+Add these to your `build.sbt` when using `--codecs`:
 
 ```scala
 libraryDependencies ++= Seq(
@@ -425,9 +425,15 @@ libraryDependencies ++= Seq(
 ## Development
 
 ```bash
+git clone https://github.com/jackhiggs/linkml-scala.git
+cd linkml-scala
 pip install -e ".[dev]"
 pytest tests/ -v
 ```
+
+End-to-end compilation tests (require `scalac` on PATH) are marked with `@pytest.mark.e2e`.
+Codec compilation tests additionally require [coursier](https://get-coursier.io/) to fetch
+circe jars.
 
 ## License
 
