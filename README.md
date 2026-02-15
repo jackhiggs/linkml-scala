@@ -26,7 +26,8 @@ pip install -e ".[dev]"
 gen-scala schema.yaml                          # print to stdout
 gen-scala schema.yaml -o output/Model.scala    # write to file
 gen-scala schema.yaml --package com.example     # custom package name
-gen-scala schema.yaml --codecs inline           # generate circe JSON codecs
+gen-scala schema.yaml --codecs inline           # circe codecs in companions
+gen-scala schema.yaml --codecs separate -o out/Model.scala  # codecs in separate Codecs.scala
 ```
 
 ### Python API
@@ -36,6 +37,15 @@ from linkml_scala.scalagen import ScalaGenerator
 
 gen = ScalaGenerator("schema.yaml", package_name="com.example.model")
 scala_code = gen.serialize()
+
+# With codecs
+gen = ScalaGenerator("schema.yaml", codecs="inline")
+scala_code = gen.serialize()
+
+# Separate codecs file
+gen = ScalaGenerator("schema.yaml", codecs="separate")
+model_code = gen.serialize()
+codecs_code = gen.serialize_codecs()
 ```
 
 ## Mapping Rules
@@ -301,26 +311,42 @@ trait Repository {
 }
 ```
 
-## JSON Codecs (circe)
+## JSON & YAML Codecs (circe)
 
-Use `--codecs inline` to generate [circe](https://circe.github.io/circe/) encoder/decoder instances
-in companion objects. Case classes use `deriveEncoder`/`deriveDecoder` (semi-automatic derivation).
-Enums use string-based codecs that preserve the original LinkML permissible value names.
+The `--codecs` flag generates [circe](https://circe.github.io/circe/) encoder/decoder instances
+and JSON/YAML loader/dumper helpers. Two modes are available:
+
+| Mode | Description |
+|------|-------------|
+| `--codecs inline` | Codecs and helpers in companion objects alongside the case classes |
+| `--codecs separate` | Codecs in a standalone `Codecs.scala` file; main file stays circe-free |
+
+### Inline codecs
 
 ```bash
 gen-scala schema.yaml --codecs inline
 ```
 
-Generated case class companion:
+Case classes get `deriveEncoder`/`deriveDecoder` (semi-automatic derivation) plus
+`fromJson`/`toJson`/`fromYaml`/`toYaml` helpers:
 
 ```scala
 object Person {
   implicit val decoder: Decoder[Person] = deriveDecoder[Person]
   implicit val encoder: Encoder[Person] = deriveEncoder[Person]
+
+  def fromJson(json: String): Either[io.circe.Error, Person] =
+    io.circe.parser.decode[Person](json)
+  def toJson(instance: Person): String =
+    encoder(instance).noSpaces
+  def fromYaml(yaml: String): Either[io.circe.Error, Person] =
+    io.circe.yaml.parser.parse(yaml).flatMap(_.as[Person])
+  def toYaml(instance: Person): String =
+    io.circe.yaml.Printer().pretty(encoder(instance))
 }
 ```
 
-Generated enum companion (preserves LinkML snake_case names in JSON):
+Enums use string-based codecs that preserve the original LinkML permissible value names:
 
 ```scala
 object Status {
@@ -336,16 +362,63 @@ object Status {
       case Status.Active   => "active"
       case Status.Inactive => "inactive"
     }
+
+  def fromJson(json: String): Either[io.circe.Error, Status] = ...
+  def toJson(instance: Status): String = ...
 }
 ```
 
-Required dependencies in your Scala project:
+### Validated decoders
+
+When a class has `slot_usage` constraints, the decoder automatically chains validation
+via `.emap`, rejecting invalid JSON/YAML at decode time:
+
+```scala
+object Record {
+  private val rawDecoder: Decoder[Record] = deriveDecoder[Record]
+  implicit val decoder: Decoder[Record] = rawDecoder.emap { instance =>
+    validate(instance) match {
+      case Nil    => Right(instance)
+      case errors => Left(errors.mkString("; "))
+    }
+  }
+  implicit val encoder: Encoder[Record] = deriveEncoder[Record]
+
+  def validate(instance: Record): List[String] = { ... }
+  // fromJson, toJson, fromYaml, toYaml helpers as above
+}
+```
+
+### Separate codecs
+
+```bash
+gen-scala schema.yaml -o output/Model.scala --codecs separate
+# Generates: output/Model.scala + output/Codecs.scala
+```
+
+The main file contains only case classes, traits, and enums with no circe dependency.
+All codecs live in a single `Codecs` object in `Codecs.scala`:
+
+```scala
+object Codecs {
+  implicit val personDecoder: Decoder[Person] = deriveDecoder[Person]
+  implicit val personEncoder: Encoder[Person] = deriveEncoder[Person]
+  def personFromJson(json: String): Either[io.circe.Error, Person] = ...
+  def personToJson(instance: Person): String = ...
+  def personFromYaml(yaml: String): Either[io.circe.Error, Person] = ...
+  def personToYaml(instance: Person): String = ...
+  // ... codecs for all types
+}
+```
+
+### Required dependencies
 
 ```scala
 libraryDependencies ++= Seq(
   "io.circe" %% "circe-core"    % "0.14.7",
   "io.circe" %% "circe-generic" % "0.14.7",
   "io.circe" %% "circe-parser"  % "0.14.7",
+  "io.circe" %% "circe-yaml"    % "0.15.1",  // for YAML support
 )
 ```
 
