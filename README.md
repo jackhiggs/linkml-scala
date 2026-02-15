@@ -26,6 +26,7 @@ pip install -e ".[dev]"
 gen-scala schema.yaml                          # print to stdout
 gen-scala schema.yaml -o output/Model.scala    # write to file
 gen-scala schema.yaml --package com.example     # custom package name
+gen-scala schema.yaml --codecs inline           # generate circe JSON codecs
 ```
 
 ### Python API
@@ -298,6 +299,54 @@ trait Repository {
     0
   }
 }
+```
+
+## JSON Codecs (circe)
+
+Use `--codecs inline` to generate [circe](https://circe.github.io/circe/) encoder/decoder instances
+in companion objects. Case classes use `deriveEncoder`/`deriveDecoder` (semi-automatic derivation).
+Enums use string-based codecs that preserve the original LinkML permissible value names.
+
+```bash
+gen-scala schema.yaml --codecs inline
+```
+
+Generated case class companion:
+
+```scala
+object Person {
+  implicit val decoder: Decoder[Person] = deriveDecoder[Person]
+  implicit val encoder: Encoder[Person] = deriveEncoder[Person]
+}
+```
+
+Generated enum companion (preserves LinkML snake_case names in JSON):
+
+```scala
+object Status {
+  implicit val decoder: Decoder[Status] =
+    Decoder.decodeString.emap {
+      case "active"   => Right(Status.Active)
+      case "inactive" => Right(Status.Inactive)
+      case other      => Left(s"Unknown Status: $other")
+    }
+
+  implicit val encoder: Encoder[Status] =
+    Encoder.encodeString.contramap {
+      case Status.Active   => "active"
+      case Status.Inactive => "inactive"
+    }
+}
+```
+
+Required dependencies in your Scala project:
+
+```scala
+libraryDependencies ++= Seq(
+  "io.circe" %% "circe-core"    % "0.14.7",
+  "io.circe" %% "circe-generic" % "0.14.7",
+  "io.circe" %% "circe-parser"  % "0.14.7",
+)
 ```
 
 ## Development

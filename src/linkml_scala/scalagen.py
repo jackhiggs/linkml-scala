@@ -92,6 +92,7 @@ class EnumValue:
     name: str
     description: str = ""
     meaning: str = ""
+    linkml_name: str = ""
 
 
 class ScalaGenerator(Generator):
@@ -110,6 +111,7 @@ class ScalaGenerator(Generator):
             lstrip_blocks=True,
         )
         self.package_name = kwargs.pop("package_name", None)
+        self.codecs = kwargs.pop("codecs", "none")  # "none" or "inline"
         # Store but don't pass to super
         kwargs.pop("format", None)
         super().__init__(schema, **kwargs)
@@ -459,9 +461,10 @@ class ScalaGenerator(Generator):
             deprecated=deprecated,
         )
 
-        # Generate companion object if there are constraints or rules
+        # Generate companion object if there are constraints, rules, or codecs
         rules = self._get_rules(cls)
-        if self._has_constraints(fields) or rules:
+        needs_companion = self._has_constraints(fields) or rules or self.codecs == "inline"
+        if needs_companion:
             companion = self.generate_companion(name, fields, rules)
             result = result.rstrip() + "\n\n" + companion
 
@@ -483,12 +486,15 @@ class ScalaGenerator(Generator):
         )
 
     def generate_companion(self, class_name: str, fields: list[ScalaField], rules: list[RuleCheck]) -> str:
-        """Generate a companion object with validate method."""
+        """Generate a companion object with validate method and optional codecs."""
         template = self.jinja_env.get_template("scala_companion.scala.jinja2")
+        has_validation = self._has_constraints(fields) or rules
         return template.render(
             name=class_name,
             fields=fields,
             rules=rules,
+            codecs=self.codecs,
+            has_validation=has_validation,
         )
 
     def generate_enum(self, enum: EnumDefinition) -> str:
@@ -500,12 +506,15 @@ class ScalaGenerator(Generator):
                 name=self._to_pascal_case(pv.text),
                 description=getattr(pv, "description", None) or "",
                 meaning=getattr(pv, "meaning", None) or "",
+                linkml_name=pv.text,
             ))
         scaladoc = self.generate_scaladoc(enum)
+        enum_name = self._to_pascal_case(enum.name)
         return template.render(
-            name=self._to_pascal_case(enum.name),
+            name=enum_name,
             values=values,
             scaladoc=scaladoc,
+            codecs=self.codecs,
         )
 
     def generate_type_alias(self, typedef: TypeDefinition) -> str:
@@ -533,6 +542,13 @@ class ScalaGenerator(Generator):
         # Package declaration
         pkg = self.package_name or schema.name.replace("-", ".").replace("_", ".")
         parts.append(f"package {pkg}\n")
+
+        # Circe imports when codecs enabled
+        if self.codecs == "inline":
+            parts.append(
+                "import io.circe.{Decoder, Encoder}\n"
+                "import io.circe.generic.semiauto.{deriveDecoder, deriveEncoder}"
+            )
 
         # Type aliases
         for type_name, typedef in (schema.types or {}).items():
@@ -594,9 +610,10 @@ class ScalaGenerator(Generator):
 @click.argument("schema", type=click.Path(exists=True))
 @click.option("-o", "--output", type=click.Path(), default=None, help="Output file path")
 @click.option("--package", "package_name", default=None, help="Scala package name")
-def cli(schema: str, output: str | None, package_name: str | None):
+@click.option("--codecs", type=click.Choice(["none", "inline"]), default="none", help="Generate circe JSON codecs")
+def cli(schema: str, output: str | None, package_name: str | None, codecs: str):
     """Generate Scala 3 code from a LinkML schema."""
-    gen = ScalaGenerator(schema, package_name=package_name)
+    gen = ScalaGenerator(schema, package_name=package_name, codecs=codecs)
     result = gen.serialize()
     if output:
         out_path = Path(output)

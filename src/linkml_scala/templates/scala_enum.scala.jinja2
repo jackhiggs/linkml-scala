@@ -16,3 +16,22 @@ enum {{ name }} {
   case {{ value.name }}
 {% endfor %}
 }
+{% if codecs == "inline" %}
+
+object {{ name }} {
+  implicit val decoder: Decoder[{{ name }}] =
+    Decoder.decodeString.emap {
+{% for value in values %}
+      case "{{ value.linkml_name }}" => Right({{ name }}.{{ value.name }})
+{% endfor %}
+      case other => Left(s"Unknown {{ name }}: $other")
+    }
+
+  implicit val encoder: Encoder[{{ name }}] =
+    Encoder.encodeString.contramap {
+{% for value in values %}
+      case {{ name }}.{{ value.name }} => "{{ value.linkml_name }}"
+{% endfor %}
+    }
+}
+{% endif %}

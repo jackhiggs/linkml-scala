@@ -1,4 +1,9 @@
 object {{ name }} {
+{% if codecs == "inline" %}
+  implicit val decoder: Decoder[{{ name }}] = deriveDecoder[{{ name }}]
+  implicit val encoder: Encoder[{{ name }}] = deriveEncoder[{{ name }}]
+{% endif %}
+{% if has_validation %}
   def validate(instance: {{ name }}): List[String] = {
     val errors = List.newBuilder[String]
 {% for field in fields %}
@@ -95,6 +100,7 @@ object {{ name }} {
 {% endfor %}
     errors.result()
   }
+{% endif %}
 {% for rule in rules %}
 
 {% if rule.open_world %}
