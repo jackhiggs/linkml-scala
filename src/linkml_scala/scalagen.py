@@ -605,12 +605,51 @@ class ScalaGenerator(Generator):
 
         return "\n\n".join(parts) + "\n"
 
+    def serialize_codecs(self, **kwargs) -> str:
+        """Generate a separate Codecs.scala file with all circe codecs."""
+        sv = self._get_schemaview()
+        schema = sv.schema
+        pkg = self.package_name or schema.name.replace("-", ".").replace("_", ".")
+
+        # Collect enum info
+        enums = []
+        for enum_name, enum_def in (schema.enums or {}).items():
+            name = self._to_pascal_case(enum_def.name)
+            values = []
+            for pv in enum_def.permissible_values.values():
+                values.append(EnumValue(
+                    name=self._to_pascal_case(pv.text),
+                    linkml_name=pv.text,
+                ))
+            enums.append({"name": name, "enum_values": values})
+
+        # Collect case class info
+        case_classes = []
+        for class_name in sv.all_classes():
+            cls = sv.get_class(class_name)
+            if not self._is_trait(cls):
+                name = self._to_pascal_case(cls.name)
+                fields = self._get_fields(cls)
+                rules = self._get_rules(cls)
+                has_validation = self._has_constraints(fields) or bool(rules)
+                case_classes.append({
+                    "name": name,
+                    "has_validation": has_validation,
+                })
+
+        template = self.jinja_env.get_template("scala_codecs.scala.jinja2")
+        return template.render(
+            package=pkg,
+            enums=enums,
+            case_classes=case_classes,
+        )
+
 
 @click.command(name="gen-scala")
 @click.argument("schema", type=click.Path(exists=True))
 @click.option("-o", "--output", type=click.Path(), default=None, help="Output file path")
 @click.option("--package", "package_name", default=None, help="Scala package name")
-@click.option("--codecs", type=click.Choice(["none", "inline"]), default="none", help="Generate circe JSON codecs")
+@click.option("--codecs", type=click.Choice(["none", "inline", "separate"]), default="none", help="Generate circe JSON codecs")
 def cli(schema: str, output: str | None, package_name: str | None, codecs: str):
     """Generate Scala 3 code from a LinkML schema."""
     gen = ScalaGenerator(schema, package_name=package_name, codecs=codecs)
@@ -622,6 +661,14 @@ def cli(schema: str, output: str | None, package_name: str | None, codecs: str):
         click.echo(f"Generated {out_path}")
     else:
         click.echo(result)
+    if codecs == "separate":
+        codecs_result = gen.serialize_codecs()
+        if output:
+            codecs_path = out_path.parent / "Codecs.scala"
+            codecs_path.write_text(codecs_result)
+            click.echo(f"Generated {codecs_path}")
+        else:
+            click.echo(codecs_result)
 
 
 if __name__ == "__main__":

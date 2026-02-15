@@ -1,4 +1,4 @@
-"""Tests for Phase 1 circe codec generation (--codecs inline)."""
+"""Tests for circe codec generation (--codecs inline and --codecs separate)."""
 
 import tempfile
 from pathlib import Path
@@ -247,3 +247,70 @@ slots:
         assert "implicit val encoder: Encoder[Foo] = deriveEncoder[Foo]" in result
         assert "implicit val decoder: Decoder[Bar] = deriveDecoder[Bar]" in result
         assert "implicit val encoder: Encoder[Bar] = deriveEncoder[Bar]" in result
+
+
+class TestSeparateCodecs:
+    def test_main_file_has_no_circe(self):
+        """With --codecs separate, main file should have no circe imports or codecs."""
+        gen = _make_gen(BASIC_SCHEMA, codecs="separate")
+        result = gen.serialize()
+        assert "io.circe" not in result
+        assert "Decoder" not in result
+        assert "Encoder" not in result
+        assert "deriveDecoder" not in result
+
+    def test_codecs_file_has_package(self):
+        gen = _make_gen(BASIC_SCHEMA, codecs="separate")
+        codecs = gen.serialize_codecs()
+        assert "package basic" in codecs
+
+    def test_codecs_file_has_imports(self):
+        gen = _make_gen(BASIC_SCHEMA, codecs="separate")
+        codecs = gen.serialize_codecs()
+        assert "import io.circe.{Decoder, Encoder}" in codecs
+        assert "import io.circe.generic.semiauto.{deriveDecoder, deriveEncoder}" in codecs
+
+    def test_codecs_file_has_object(self):
+        gen = _make_gen(BASIC_SCHEMA, codecs="separate")
+        codecs = gen.serialize_codecs()
+        assert "object Codecs" in codecs
+
+    def test_codecs_file_has_case_class_codecs(self):
+        gen = _make_gen(BASIC_SCHEMA, codecs="separate")
+        codecs = gen.serialize_codecs()
+        assert "personDecoder: Decoder[Person]" in codecs
+        assert "personEncoder: Encoder[Person]" in codecs
+        assert "deriveDecoder[Person]" in codecs
+        assert "deriveEncoder[Person]" in codecs
+
+    def test_codecs_file_has_enum_codecs(self):
+        gen = _make_gen(BASIC_SCHEMA, codecs="separate")
+        codecs = gen.serialize_codecs()
+        assert "statusDecoder: Decoder[Status]" in codecs
+        assert "statusEncoder: Encoder[Status]" in codecs
+        assert 'case "active" => Right(Status.Active)' in codecs
+        assert 'case Status.Active => "active"' in codecs
+
+    def test_codecs_file_has_json_yaml_helpers(self):
+        gen = _make_gen(BASIC_SCHEMA, codecs="separate")
+        codecs = gen.serialize_codecs()
+        assert "personFromJson" in codecs
+        assert "personToJson" in codecs
+        assert "personFromYaml" in codecs
+        assert "personToYaml" in codecs
+        assert "statusFromJson" in codecs
+        assert "statusToJson" in codecs
+
+    def test_codecs_file_validated_decoder(self):
+        gen = _make_gen(SCHEMA_WITH_VALIDATION, codecs="separate")
+        codecs = gen.serialize_codecs()
+        assert "rawRecordDecoder" in codecs
+        assert "Record.validate(instance)" in codecs
+        assert "emap" in codecs
+
+    def test_codecs_file_no_validation_no_emap(self):
+        gen = _make_gen(BASIC_SCHEMA, codecs="separate")
+        codecs = gen.serialize_codecs()
+        # Person has no constraints, should use plain deriveDecoder
+        assert "rawPersonDecoder" not in codecs
+        assert "personDecoder: Decoder[Person] = deriveDecoder[Person]" in codecs

@@ -1,0 +1,51 @@
+package {{ package }}
+
+import io.circe.{Decoder, Encoder}
+import io.circe.generic.semiauto.{deriveDecoder, deriveEncoder}
+
+object Codecs {
+{% for enum in enums %}
+  implicit val {{ enum.name[0]|lower }}{{ enum.name[1:] }}Decoder: Decoder[{{ enum.name }}] =
+    Decoder.decodeString.emap {
+{% for value in enum.enum_values %}
+      case "{{ value.linkml_name }}" => Right({{ enum.name }}.{{ value.name }})
+{% endfor %}
+      case other => Left(s"Unknown {{ enum.name }}: $other")
+    }
+
+  implicit val {{ enum.name[0]|lower }}{{ enum.name[1:] }}Encoder: Encoder[{{ enum.name }}] =
+    Encoder.encodeString.contramap {
+{% for value in enum.enum_values %}
+      case {{ enum.name }}.{{ value.name }} => "{{ value.linkml_name }}"
+{% endfor %}
+    }
+
+  def {{ enum.name[0]|lower }}{{ enum.name[1:] }}FromJson(json: String): Either[io.circe.Error, {{ enum.name }}] =
+    io.circe.parser.decode[{{ enum.name }}](json)({{ enum.name[0]|lower }}{{ enum.name[1:] }}Decoder)
+  def {{ enum.name[0]|lower }}{{ enum.name[1:] }}ToJson(instance: {{ enum.name }}): String =
+    {{ enum.name[0]|lower }}{{ enum.name[1:] }}Encoder(instance).noSpaces
+{% endfor %}
+{% for cls in case_classes %}
+{% if cls.has_validation %}
+  private val raw{{ cls.name }}Decoder: Decoder[{{ cls.name }}] = deriveDecoder[{{ cls.name }}]
+  implicit val {{ cls.name[0]|lower }}{{ cls.name[1:] }}Decoder: Decoder[{{ cls.name }}] = raw{{ cls.name }}Decoder.emap { instance =>
+    {{ cls.name }}.validate(instance) match {
+      case Nil    => Right(instance)
+      case errors => Left(errors.mkString("; "))
+    }
+  }
+{% else %}
+  implicit val {{ cls.name[0]|lower }}{{ cls.name[1:] }}Decoder: Decoder[{{ cls.name }}] = deriveDecoder[{{ cls.name }}]
+{% endif %}
+  implicit val {{ cls.name[0]|lower }}{{ cls.name[1:] }}Encoder: Encoder[{{ cls.name }}] = deriveEncoder[{{ cls.name }}]
+
+  def {{ cls.name[0]|lower }}{{ cls.name[1:] }}FromJson(json: String): Either[io.circe.Error, {{ cls.name }}] =
+    io.circe.parser.decode[{{ cls.name }}](json)({{ cls.name[0]|lower }}{{ cls.name[1:] }}Decoder)
+  def {{ cls.name[0]|lower }}{{ cls.name[1:] }}ToJson(instance: {{ cls.name }}): String =
+    {{ cls.name[0]|lower }}{{ cls.name[1:] }}Encoder(instance).noSpaces
+  def {{ cls.name[0]|lower }}{{ cls.name[1:] }}FromYaml(yaml: String): Either[io.circe.Error, {{ cls.name }}] =
+    io.circe.yaml.parser.parse(yaml).flatMap(_.as[{{ cls.name }}]({{ cls.name[0]|lower }}{{ cls.name[1:] }}Decoder))
+  def {{ cls.name[0]|lower }}{{ cls.name[1:] }}ToYaml(instance: {{ cls.name }}): String =
+    io.circe.yaml.Printer().pretty({{ cls.name[0]|lower }}{{ cls.name[1:] }}Encoder(instance))
+{% endfor %}
+}
