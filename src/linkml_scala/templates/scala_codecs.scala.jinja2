@@ -21,7 +21,7 @@ object Codecs {
     }
 
   def {{ enum.name[0]|lower }}{{ enum.name[1:] }}FromJson(json: String): Either[io.circe.Error, {{ enum.name }}] =
-    io.circe.parser.decode[{{ enum.name }}](json)({{ enum.name[0]|lower }}{{ enum.name[1:] }}Decoder)
+    io.circe.parser.decode[{{ enum.name }}](json)
   def {{ enum.name[0]|lower }}{{ enum.name[1:] }}ToJson(instance: {{ enum.name }}): String =
     {{ enum.name[0]|lower }}{{ enum.name[1:] }}Encoder(instance).noSpaces
 {% endfor %}
@@ -40,11 +40,11 @@ object Codecs {
   implicit val {{ cls.name[0]|lower }}{{ cls.name[1:] }}Encoder: Encoder[{{ cls.name }}] = deriveEncoder[{{ cls.name }}]
 
   def {{ cls.name[0]|lower }}{{ cls.name[1:] }}FromJson(json: String): Either[io.circe.Error, {{ cls.name }}] =
-    io.circe.parser.decode[{{ cls.name }}](json)({{ cls.name[0]|lower }}{{ cls.name[1:] }}Decoder)
+    io.circe.parser.decode[{{ cls.name }}](json)
   def {{ cls.name[0]|lower }}{{ cls.name[1:] }}ToJson(instance: {{ cls.name }}): String =
     {{ cls.name[0]|lower }}{{ cls.name[1:] }}Encoder(instance).noSpaces
   def {{ cls.name[0]|lower }}{{ cls.name[1:] }}FromYaml(yaml: String): Either[io.circe.Error, {{ cls.name }}] =
-    io.circe.yaml.parser.parse(yaml).flatMap(_.as[{{ cls.name }}]({{ cls.name[0]|lower }}{{ cls.name[1:] }}Decoder))
+    io.circe.yaml.parser.parse(yaml).flatMap(_.as[{{ cls.name }}])
   def {{ cls.name[0]|lower }}{{ cls.name[1:] }}ToYaml(instance: {{ cls.name }}): String =
     io.circe.yaml.Printer().pretty({{ cls.name[0]|lower }}{{ cls.name[1:] }}Encoder(instance))
 {% endfor %}

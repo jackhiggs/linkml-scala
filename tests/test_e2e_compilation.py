@@ -520,3 +520,213 @@ class TestFullSchemaRoundtrip:
         assert result.returncode == 0, (
             f"Compilation failed:\n{result.stderr}\n\nGenerated code:\n{cleaned}"
         )
+
+
+# --- Codec compilation tests (require circe jars) ---
+
+COURSIER_PATH = shutil.which("coursier") or shutil.which("cs")
+
+_CIRCE_CLASSPATH: str | None = None
+
+
+def _get_circe_classpath() -> str | None:
+    """Fetch circe jars via coursier and return classpath string."""
+    global _CIRCE_CLASSPATH
+    if _CIRCE_CLASSPATH is not None:
+        return _CIRCE_CLASSPATH
+    if COURSIER_PATH is None:
+        return None
+    try:
+        result = subprocess.run(
+            [
+                COURSIER_PATH, "fetch", "--classpath",
+                "io.circe::circe-core:0.14.7",
+                "io.circe::circe-generic:0.14.7",
+                "io.circe::circe-parser:0.14.7",
+                "io.circe::circe-yaml:0.15.1",
+            ],
+            capture_output=True, text=True, timeout=120,
+        )
+        if result.returncode == 0:
+            # Filter out scala-library jars to avoid version conflicts with scalac's own
+            jars = result.stdout.strip().split(":")
+            jars = [j for j in jars if "scala-library" not in j and "scala3-library" not in j]
+            _CIRCE_CLASSPATH = ":".join(jars)
+            return _CIRCE_CLASSPATH
+    except (subprocess.TimeoutExpired, FileNotFoundError):
+        pass
+    return None
+
+
+def compile_scala_with_circe(code: str, tmpdir: Path, filename: str = "Generated.scala") -> subprocess.CompletedProcess:
+    """Compile Scala code with circe jars on the classpath."""
+    cp = _get_circe_classpath()
+    scala_file = tmpdir / filename
+    scala_file.write_text(code)
+    cmd = [SCALAC_PATH, "-classpath", cp, str(scala_file)]
+    return subprocess.run(cmd, capture_output=True, text=True, cwd=str(tmpdir), timeout=120)
+
+
+def _skip_no_circe():
+    return pytest.mark.skipif(
+        COURSIER_PATH is None,
+        reason="coursier not available to fetch circe jars",
+    )
+
+
+CODEC_SCHEMA = """\
+id: https://example.org/codectest
+name: codectest
+prefixes:
+  linkml: https://w3id.org/linkml/
+imports:
+  - linkml:types
+default_range: string
+
+enums:
+  Color:
+    permissible_values:
+      red: {}
+      green: {}
+      blue: {}
+
+classes:
+  Widget:
+    slots:
+      - id
+      - name
+      - color
+      - tags
+
+slots:
+  id:
+    range: string
+    required: true
+  name:
+    range: string
+    required: true
+  color:
+    range: Color
+  tags:
+    range: string
+    multivalued: true
+"""
+
+CODEC_SCHEMA_WITH_VALIDATION = """\
+id: https://example.org/validated
+name: validatedtest
+prefixes:
+  linkml: https://w3id.org/linkml/
+imports:
+  - linkml:types
+default_range: string
+
+classes:
+  Measurement:
+    slots:
+      - label
+      - value
+    slot_usage:
+      value:
+        minimum_value: 0
+        maximum_value: 1000
+
+slots:
+  label:
+    range: string
+    required: true
+  value:
+    range: integer
+    required: true
+"""
+
+
+@_skip_no_circe()
+class TestCodecsInlineCompilation:
+    """Verify that --codecs inline output compiles with circe on the classpath."""
+
+    def test_basic_codecs_compile(self, tmp_path):
+        schema_file = tmp_path / "schema.yaml"
+        schema_file.write_text(CODEC_SCHEMA)
+        gen = ScalaGenerator(str(schema_file), codecs="inline")
+        code = gen.serialize()
+        result = compile_scala_with_circe(code, tmp_path)
+        assert result.returncode == 0, f"Compilation failed:\n{result.stderr}\n\nGenerated code:\n{code}"
+
+    def test_codecs_contain_expected_symbols(self, tmp_path):
+        schema_file = tmp_path / "schema.yaml"
+        schema_file.write_text(CODEC_SCHEMA)
+        gen = ScalaGenerator(str(schema_file), codecs="inline")
+        code = gen.serialize()
+        assert "implicit val decoder: Decoder[Widget]" in code
+        assert "implicit val encoder: Encoder[Widget]" in code
+        assert "implicit val decoder: Decoder[Color]" in code
+        assert "implicit val encoder: Encoder[Color]" in code
+        assert "def fromJson" in code
+        assert "def toJson" in code
+        assert "def fromYaml" in code
+        assert "def toYaml" in code
+
+    def test_validated_codecs_compile(self, tmp_path):
+        schema_file = tmp_path / "schema.yaml"
+        schema_file.write_text(CODEC_SCHEMA_WITH_VALIDATION)
+        gen = ScalaGenerator(str(schema_file), codecs="inline")
+        code = gen.serialize()
+        assert "rawDecoder" in code
+        assert "emap" in code
+        result = compile_scala_with_circe(code, tmp_path)
+        assert result.returncode == 0, f"Compilation failed:\n{result.stderr}\n\nGenerated code:\n{code}"
+
+
+@_skip_no_circe()
+class TestCodecsSeparateCompilation:
+    """Verify that --codecs separate output compiles with circe on the classpath."""
+
+    def test_separate_codecs_compile(self, tmp_path):
+        schema_file = tmp_path / "schema.yaml"
+        schema_file.write_text(CODEC_SCHEMA)
+        gen = ScalaGenerator(str(schema_file), codecs="separate")
+        main_code = gen.serialize()
+        codecs_code = gen.serialize_codecs()
+
+        # Write both files and compile together
+        (tmp_path / "Model.scala").write_text(main_code)
+        (tmp_path / "Codecs.scala").write_text(codecs_code)
+        cp = _get_circe_classpath()
+        result = subprocess.run(
+            [SCALAC_PATH, "-classpath", cp, str(tmp_path / "Model.scala"), str(tmp_path / "Codecs.scala")],
+            capture_output=True, text=True, cwd=str(tmp_path), timeout=120,
+        )
+        assert result.returncode == 0, (
+            f"Compilation failed:\n{result.stderr}\n\n"
+            f"Model.scala:\n{main_code}\n\nCodecs.scala:\n{codecs_code}"
+        )
+
+    def test_separate_codecs_main_file_clean(self, tmp_path):
+        schema_file = tmp_path / "schema.yaml"
+        schema_file.write_text(CODEC_SCHEMA)
+        gen = ScalaGenerator(str(schema_file), codecs="separate")
+        main_code = gen.serialize()
+        assert "io.circe" not in main_code
+        assert "Decoder" not in main_code
+
+    def test_separate_validated_codecs_compile(self, tmp_path):
+        schema_file = tmp_path / "schema.yaml"
+        schema_file.write_text(CODEC_SCHEMA_WITH_VALIDATION)
+        gen = ScalaGenerator(str(schema_file), codecs="separate")
+        main_code = gen.serialize()
+        codecs_code = gen.serialize_codecs()
+        assert "rawMeasurementDecoder" in codecs_code
+        assert "Measurement.validate" in codecs_code
+
+        (tmp_path / "Model.scala").write_text(main_code)
+        (tmp_path / "Codecs.scala").write_text(codecs_code)
+        cp = _get_circe_classpath()
+        result = subprocess.run(
+            [SCALAC_PATH, "-classpath", cp, str(tmp_path / "Model.scala"), str(tmp_path / "Codecs.scala")],
+            capture_output=True, text=True, cwd=str(tmp_path), timeout=120,
+        )
+        assert result.returncode == 0, (
+            f"Compilation failed:\n{result.stderr}\n\n"
+            f"Model.scala:\n{main_code}\n\nCodecs.scala:\n{codecs_code}"
+        )
