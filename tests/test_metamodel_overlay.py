@@ -61,7 +61,8 @@ class TestScalaClassAnnotation:
                 {
                     "name": "findById",
                     "parameters": [{"name": "id", "range": "string"}],
-                    "return_type": "Option[Self]",
+                    "range": "Entity",
+                    "required": False,
                     "is_abstract": True,
                 },
             ],
@@ -70,6 +71,8 @@ class TestScalaClassAnnotation:
         assert ann.is_interface is True
         assert len(ann.operations) == 1
         assert ann.operations[0].name == "findById"
+        assert ann.operations[0].range == "Entity"
+        assert ann.operations[0].required is False
         assert len(ann.operations[0].parameters) == 1
 
     def test_from_non_dict(self):
@@ -95,14 +98,21 @@ class TestOperationsGeneration:
                 {
                     "name": "findById",
                     "parameters": [{"name": "id", "range": "string"}],
-                    "return_type": "Option[Self]",
+                    "range": "Entity",
+                    "required": False,
                     "is_abstract": True,
                 },
                 {
                     "name": "count",
-                    "return_type": "Int",
+                    "range": "integer",
                     "is_abstract": False,
                     "body": "0",
+                },
+                {
+                    "name": "findAll",
+                    "range": "Entity",
+                    "multivalued": True,
+                    "is_abstract": True,
                 },
             ],
         }
@@ -113,17 +123,22 @@ class TestOperationsGeneration:
         sv = self.gen._get_schemaview()
         cls = sv.get_class("Repository")
         ops = self.gen.get_operations(cls)
-        assert len(ops) == 2
+        assert len(ops) == 3
         assert ops[0].name == "findById"
-        assert ops[0].return_type == "Option[Self]"
+        assert ops[0].return_type == "Option[Entity]"
+        assert ops[1].name == "count"
+        assert ops[1].return_type == "Int"
+        assert ops[2].name == "findAll"
+        assert ops[2].return_type == "List[Entity]"
 
     def test_trait_renders_operations(self):
         sv = self.gen._get_schemaview()
         cls = sv.get_class("Repository")
         result = self.gen.generate_trait(cls)
         assert "trait Repository" in result
-        assert "def findById(id: String): Option[Self]" in result
+        assert "def findById(id: String): Option[Entity]" in result
         assert "def count(): Int" in result
+        assert "def findAll(): List[Entity]" in result
 
     def test_operation_with_body(self):
         sv = self.gen._get_schemaview()

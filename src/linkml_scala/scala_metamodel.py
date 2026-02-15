@@ -15,7 +15,9 @@ class ParameterDefinition:
 class OperationDefinition:
     name: str
     parameters: list["ParameterDefinition"] = field(default_factory=list)
-    return_type: Optional[str] = None
+    range: Optional[str] = None  # LinkML type name (string, integer, MyClass, etc.)
+    multivalued: bool = False
+    required: bool = True
     is_abstract: bool = True
     body: Optional[str] = None
 
@@ -43,7 +45,9 @@ class ScalaClassAnnotation:
             ops.append(OperationDefinition(
                 name=op_dict["name"],
                 parameters=params,
-                return_type=op_dict.get("return_type"),
+                range=op_dict.get("range"),
+                multivalued=op_dict.get("multivalued", False),
+                required=op_dict.get("required", True),
                 is_abstract=op_dict.get("is_abstract", True),
                 body=op_dict.get("body"),
             ))

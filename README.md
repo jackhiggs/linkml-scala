@@ -253,10 +253,18 @@ Class `rules` with `preconditions`/`postconditions` referencing `slot_conditions
 
 ## Interface Operations
 
-You can define methods on traits using annotations with a JSON-encoded `scala` key:
+You can define methods on traits using annotations with a JSON-encoded `scala` key.
+Operation return types follow standard LinkML slot conventions: `range` specifies
+the type (built-in or schema-defined class), `multivalued` wraps in `List[T]`,
+and `required: false` wraps in `Option[T]`:
 
 ```yaml
 classes:
+  Entity:
+    slots:
+      - id
+      - name
+
   Repository:
     mixin: true
     annotations:
@@ -267,10 +275,15 @@ classes:
             parameters:
               - name: id
                 range: string
-            return_type: "Option[Self]"
+            range: Entity
+            required: false
+            is_abstract: true
+          - name: findAll
+            range: Entity
+            multivalued: true
             is_abstract: true
           - name: count
-            return_type: Int
+            range: integer
             is_abstract: false
             body: "0"
 ```
@@ -279,7 +292,8 @@ Generates:
 
 ```scala
 trait Repository {
-  def findById(id: String): Option[Self]
+  def findById(id: String): Option[Entity]
+  def findAll(): List[Entity]
   def count(): Int = {
     0
   }

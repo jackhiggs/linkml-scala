@@ -9,7 +9,11 @@ imports:
 
 classes:
   OperationDefinition:
-    description: A method/operation on a trait or class
+    description: >-
+      A method/operation on a trait or class. The return value follows
+      standard LinkML slot conventions: range specifies the type (built-in
+      or schema-defined class), multivalued wraps in List[T], and
+      required controls Option[T] wrapping.
     attributes:
       name:
         range: string
@@ -18,8 +22,20 @@ classes:
         range: ParameterDefinition
         multivalued: true
         inlined_as_list: true
-      return_type:
+      range:
         range: string
+        description: >-
+          LinkML type name for the return value. Can be a built-in type
+          (string, integer, boolean, etc.) or a class/enum defined in the
+          schema. Defaults to Unit (void) if omitted.
+      multivalued:
+        range: boolean
+        description: If true, return type is wrapped in List[T].
+      required:
+        range: boolean
+        description: >-
+          If false (default), return type is wrapped in Option[T].
+          If true, the bare type is used.
       is_abstract:
         range: boolean
         description: If true, no default implementation

@@ -19,7 +19,7 @@ from linkml_runtime.linkml_model.meta import (
 )
 from linkml_runtime.utils.schemaview import SchemaView
 
-from linkml_scala.scala_metamodel import OperationDefinition, ScalaClassAnnotation
+from linkml_scala.scala_metamodel import ScalaClassAnnotation
 
 TEMPLATES_DIR = Path(__file__).parent / "templates"
 
@@ -236,10 +236,21 @@ class ScalaGenerator(Generator):
             params = ", ".join(
                 f"{p.name}: {self.map_type(p.range)}" for p in op.parameters
             )
+            # Resolve return type using the same logic as slot ranges
+            if op.range:
+                base_type = self.map_type(op.range)
+                if op.multivalued:
+                    return_type = f"List[{base_type}]"
+                elif not op.required:
+                    return_type = f"Option[{base_type}]"
+                else:
+                    return_type = base_type
+            else:
+                return_type = "Unit"
             ops.append(ScalaOperation(
                 name=op.name,
                 params_str=params,
-                return_type=op.return_type or "Unit",
+                return_type=return_type,
                 body=op.body,
             ))
         return ops
