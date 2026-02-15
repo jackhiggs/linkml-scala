@@ -8,4 +8,4 @@ case class {{ name }}(
 {% for field in fields %}
   {{ field.name }}: {{ field.scala_type }}{{ field.default }}{{ "," if not loop.last }}
 {% endfor %}
-){% if parent %} extends {{ parent }}{% endif %}{% for m in mixins %} with {{ m }}{% endfor %}
+){% if parent %} extends {{ parent }}{% for m in mixins %} with {{ m }}{% endfor %}{% elif mixins %} extends {{ mixins[0] }}{% for m in mixins[1:] %} with {{ m }}{% endfor %}{% endif %}

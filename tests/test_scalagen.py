@@ -232,7 +232,7 @@ class TestSlotConstraints:
         cls = sv.get_class("Person")
         fields = self.gen._get_fields(cls)
         email_field = next(f for f in fields if f.name == "email")
-        assert email_field.pattern == "^\\S+@\\S+\\.\\S+$"
+        assert email_field.pattern == "^\\\\S+@\\\\S+\\\\.\\\\S+$"
 
     def test_slot_usage_min_max(self):
         sv = self.gen._get_schemaview()

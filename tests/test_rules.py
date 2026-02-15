@@ -40,7 +40,7 @@ class TestRuleExtraction:
         field, op, value = rule.postconditions[0]
         assert field == "status"
         assert op == "=="
-        assert '"active"' in value
+        assert "Status.Active" in value or '"active"' in value
 
     def test_no_rules_on_organization(self):
         sv = self.gen._get_schemaview()
@@ -71,7 +71,7 @@ class TestMultipleRules:
         field, op, value = rule.preconditions[0]
         assert field == "status"
         assert op == "=="
-        assert '"inactive"' in value
+        assert "Status.Inactive" in value or '"inactive"' in value
 
     def test_maximum_value_postcondition(self):
         sv = self.gen._get_schemaview()
@@ -137,8 +137,8 @@ class TestRuleCodeGeneration:
         sv = self.gen._get_schemaview()
         cls = sv.get_class("Person")
         result = self.gen.generate_case_class(cls)
-        # The inactive rule should check status == "inactive"
-        assert '"inactive"' in result
+        # The inactive rule should check status == Status.Inactive (enum-aware)
+        assert "Status.Inactive" in result
 
     def test_postcondition_only_rule_no_preconditions_block(self):
         sv = self.gen._get_schemaview()

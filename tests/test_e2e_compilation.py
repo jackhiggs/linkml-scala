@@ -304,6 +304,110 @@ slots:
         assert "with Timestamped" in code
 
 
+class TestMixinsWithoutIsA:
+    """Classes with mixins but no is_a parent — first mixin uses extends."""
+
+    SCHEMA = """\
+id: https://example.org/mixins_no_isa
+name: mixins.no.isa
+prefixes:
+  linkml: https://w3id.org/linkml/
+imports:
+  - linkml:types
+default_range: string
+
+classes:
+  Auditable:
+    mixin: true
+    slots:
+      - created_by
+
+  Taggable:
+    mixin: true
+    slots:
+      - tags
+
+  Document:
+    mixins:
+      - Auditable
+      - Taggable
+    slots:
+      - title
+
+slots:
+  created_by:
+    range: string
+    required: true
+  tags:
+    range: string
+    multivalued: true
+  title:
+    range: string
+    required: true
+"""
+
+    def test_compiles(self, tmp_path):
+        code, result = generate_and_compile(self.SCHEMA, tmp_path)
+        assert result.returncode == 0, f"Compilation failed:\n{result.stderr}\n\nGenerated code:\n{code}"
+
+    def test_extends_first_mixin(self, tmp_path):
+        code, _ = generate_and_compile(self.SCHEMA, tmp_path)
+        assert "extends Auditable with Taggable" in code
+        assert ") with Auditable" not in code
+
+
+class TestRulesWithRequiredFields:
+    """Rules on required (non-Option) fields compile correctly."""
+
+    SCHEMA = """\
+id: https://example.org/rules_required
+name: rules.required
+prefixes:
+  linkml: https://w3id.org/linkml/
+imports:
+  - linkml:types
+default_range: string
+
+classes:
+  Account:
+    slots:
+      - username
+      - role
+      - level
+    rules:
+      - preconditions:
+          slot_conditions:
+            role:
+              equals_string: admin
+        postconditions:
+          slot_conditions:
+            level:
+              minimum_value: 10
+        description: Admins need high level
+
+slots:
+  username:
+    range: string
+    required: true
+  role:
+    range: string
+    required: true
+  level:
+    range: integer
+    required: true
+"""
+
+    def test_compiles(self, tmp_path):
+        code, result = generate_and_compile(self.SCHEMA, tmp_path)
+        assert result.returncode == 0, f"Compilation failed:\n{result.stderr}\n\nGenerated code:\n{code}"
+
+    def test_no_option_pattern_match(self, tmp_path):
+        code, _ = generate_and_compile(self.SCHEMA, tmp_path)
+        # Required fields should use direct comparison, not Some/None matching
+        assert "case Some" not in code
+        assert '(instance.role == "admin")' in code
+
+
 class TestOperationsOnInterfaces:
     """Operations defined via scala annotations on interface classes.
 
@@ -480,45 +584,42 @@ slots:
 
 
 class TestFullSchemaRoundtrip:
-    """Compile the project's own example_schema.yaml end-to-end.
+    """Compile the project's own example_schema.yaml end-to-end with no patching."""
 
-    The companion template has a known defect: rule methods that compare
-    against string values emit unescaped double-quotes inside string
-    literals (e.g., ``errors += "field must == "value"``). Additionally,
-    the case class template emits ``with Mixin`` without ``extends`` when
-    there is no is_a parent.
-
-    This test strips the broken rule methods and patches the ``with``
-    syntax so the overall schema structure (enums, traits, case classes,
-    sealed traits, companion validate methods) can still be verified as
-    compilable.
-    """
-
-    def test_example_schema_structure_compiles(self, tmp_path):
+    def test_example_schema_compiles(self, tmp_path):
         schema_path = Path(__file__).parent / "input" / "example_schema.yaml"
         gen = ScalaGenerator(str(schema_path))
         code = gen.serialize()
+        result = compile_scala(code, tmp_path)
+        assert result.returncode == 0, f"Compilation failed:\n{result.stderr}\n\nGenerated code:\n{code}"
 
-        # The generator produces several known compilation issues:
-        # 1. Rule methods with string comparisons contain unescaped quotes
-        # 2. "with Mixin" without "extends" when no is_a parent
-        # 3. Comparing enum-typed fields to string literals
-        #
-        # Strategy: strip companion objects entirely (they contain the
-        # broken rule methods), then fix the with/extends syntax.
-        cleaned = re.sub(
-            r'^object \w+ \{.*?^\}',
-            '',
-            code,
-            flags=re.MULTILINE | re.DOTALL,
+    def test_example_schema_with_inline_codecs_compiles(self, tmp_path):
+        schema_path = Path(__file__).parent / "input" / "example_schema.yaml"
+        gen = ScalaGenerator(str(schema_path), codecs="inline")
+        code = gen.serialize()
+        cp = _get_circe_classpath()
+        if cp is None:
+            pytest.skip("coursier not available to fetch circe jars")
+        result = compile_scala_with_circe(code, tmp_path)
+        assert result.returncode == 0, f"Compilation failed:\n{result.stderr}\n\nGenerated code:\n{code}"
+
+    def test_example_schema_with_separate_codecs_compiles(self, tmp_path):
+        schema_path = Path(__file__).parent / "input" / "example_schema.yaml"
+        gen = ScalaGenerator(str(schema_path), codecs="separate")
+        main_code = gen.serialize()
+        codecs_code = gen.serialize_codecs()
+        cp = _get_circe_classpath()
+        if cp is None:
+            pytest.skip("coursier not available to fetch circe jars")
+        (tmp_path / "Model.scala").write_text(main_code)
+        (tmp_path / "Codecs.scala").write_text(codecs_code)
+        result = subprocess.run(
+            [SCALAC_PATH, "-classpath", cp, str(tmp_path / "Model.scala"), str(tmp_path / "Codecs.scala")],
+            capture_output=True, text=True, cwd=str(tmp_path), timeout=120,
         )
-
-        # Fix ") with Bar" -> ") extends Bar" (first mixin without is_a)
-        cleaned = re.sub(r'\) with (\w+)', r') extends \1', cleaned, count=0)
-
-        result = compile_scala(cleaned, tmp_path)
         assert result.returncode == 0, (
-            f"Compilation failed:\n{result.stderr}\n\nGenerated code:\n{cleaned}"
+            f"Compilation failed:\n{result.stderr}\n\n"
+            f"Model.scala:\n{main_code}\n\nCodecs.scala:\n{codecs_code}"
         )
 
 
@@ -799,3 +900,127 @@ class TestCustomTypeCodecsCompilation:
             f"Compilation failed:\n{result.stderr}\n\n"
             f"Model.scala:\n{main_code}\n\nCodecs.scala:\n{codecs_code}"
         )
+
+
+KITCHEN_SINK_SCHEMA = """\
+id: https://example.org/kitchensink
+name: kitchensink
+prefixes:
+  linkml: https://w3id.org/linkml/
+imports:
+  - linkml:types
+default_range: string
+
+enums:
+  Priority:
+    permissible_values:
+      low: {}
+      medium: {}
+      high: {}
+
+classes:
+  Auditable:
+    mixin: true
+    slots:
+      - created_at
+      - created_by
+
+  BaseEntity:
+    abstract: true
+    slots:
+      - id
+      - name
+
+  Task:
+    is_a: BaseEntity
+    mixins:
+      - Auditable
+    slots:
+      - priority
+      - due_date
+      - url
+      - score
+    slot_usage:
+      score:
+        minimum_value: 0
+        maximum_value: 100
+    rules:
+      - preconditions:
+          slot_conditions:
+            score:
+              minimum_value: 80
+        postconditions:
+          slot_conditions:
+            name:
+              equals_string: excellent
+        description: High scorers are excellent
+
+  Standalone:
+    mixins:
+      - Auditable
+    slots:
+      - label
+
+slots:
+  id:
+    range: string
+    required: true
+    identifier: true
+  name:
+    range: string
+    required: true
+  created_at:
+    range: datetime
+  created_by:
+    range: string
+  priority:
+    range: Priority
+  due_date:
+    range: date
+  url:
+    range: uri
+  score:
+    range: integer
+  label:
+    range: string
+    required: true
+"""
+
+
+@_skip_no_circe()
+class TestKitchenSinkCompilation:
+    """Combined test: codecs + inheritance + mixins + enums + validation + rules + custom types."""
+
+    def test_inline_compiles(self, tmp_path):
+        schema_file = tmp_path / "schema.yaml"
+        schema_file.write_text(KITCHEN_SINK_SCHEMA)
+        gen = ScalaGenerator(str(schema_file), codecs="inline")
+        code = gen.serialize()
+        result = compile_scala_with_circe(code, tmp_path)
+        assert result.returncode == 0, f"Compilation failed:\n{result.stderr}\n\nGenerated code:\n{code}"
+
+    def test_separate_compiles(self, tmp_path):
+        schema_file = tmp_path / "schema.yaml"
+        schema_file.write_text(KITCHEN_SINK_SCHEMA)
+        gen = ScalaGenerator(str(schema_file), codecs="separate")
+        main_code = gen.serialize()
+        codecs_code = gen.serialize_codecs()
+        (tmp_path / "Model.scala").write_text(main_code)
+        (tmp_path / "Codecs.scala").write_text(codecs_code)
+        cp = _get_circe_classpath()
+        result = subprocess.run(
+            [SCALAC_PATH, "-classpath", cp, str(tmp_path / "Model.scala"), str(tmp_path / "Codecs.scala")],
+            capture_output=True, text=True, cwd=str(tmp_path), timeout=120,
+        )
+        assert result.returncode == 0, (
+            f"Compilation failed:\n{result.stderr}\n\n"
+            f"Model.scala:\n{main_code}\n\nCodecs.scala:\n{codecs_code}"
+        )
+
+    def test_standalone_extends_mixin(self, tmp_path):
+        """Class with mixins but no is_a should use extends for first mixin."""
+        schema_file = tmp_path / "schema.yaml"
+        schema_file.write_text(KITCHEN_SINK_SCHEMA)
+        gen = ScalaGenerator(str(schema_file))
+        code = gen.serialize()
+        assert ") with Auditable\n" not in code

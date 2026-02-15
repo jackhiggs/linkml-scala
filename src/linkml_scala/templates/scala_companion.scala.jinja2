@@ -138,47 +138,66 @@ object {{ name }} {
     val errors = List.newBuilder[String]
 {% if rule.preconditions %}
     val preconditionsMet =
-{% for field, op, value in rule.preconditions %}
-      instance.{{ field }} match {
-        case Some(v) => v {{ op }} {{ value }}
+{% for cond in rule.preconditions %}
+{% if cond.is_optional %}
+      instance.{{ cond.field }} match {
+        case Some(v) => v {{ cond.op }} {{ cond.value }}
         case None => false
       }{% if not loop.last %} &&{% endif %}
+{% else %}
+      (instance.{{ cond.field }} {{ cond.op }} {{ cond.value }}){% if not loop.last %} &&{% endif %}
+{% endif %}
 
 {% endfor %}
     if (preconditionsMet) {
-{% for field, op, value in rule.postconditions %}
-      instance.{{ field }} match {
-        case Some(v) if !(v {{ op }} {{ value }}) =>
-          errors += "{{ rule.description }}: {{ field }} must {{ op }} {{ value }}"
+{% for cond in rule.postconditions %}
+{% if cond.is_optional %}
+      instance.{{ cond.field }} match {
+        case Some(v) if !(v {{ cond.op }} {{ cond.value }}) =>
+          errors += "{{ rule.description }}: {{ cond.field }} must {{ cond.op }} {{ cond.error_value }}"
         case None =>
-          errors += "{{ rule.description }}: {{ field }} is required"
+          errors += "{{ rule.description }}: {{ cond.field }} is required"
         case _ => ()
       }
+{% else %}
+      if (!(instance.{{ cond.field }} {{ cond.op }} {{ cond.value }}))
+        errors += "{{ rule.description }}: {{ cond.field }} must {{ cond.op }} {{ cond.error_value }}"
+{% endif %}
 {% endfor %}
 {% if rule.elseconditions %}
     } else {
-{% for field, op, value in rule.elseconditions %}
-      instance.{{ field }} match {
-        case Some(v) if !(v {{ op }} {{ value }}) =>
-          errors += "{{ rule.description }}: {{ field }} must {{ op }} {{ value }}"
+{% for cond in rule.elseconditions %}
+{% if cond.is_optional %}
+      instance.{{ cond.field }} match {
+        case Some(v) if !(v {{ cond.op }} {{ cond.value }}) =>
+          errors += "{{ rule.description }}: {{ cond.field }} must {{ cond.op }} {{ cond.error_value }}"
         case None =>
-          errors += "{{ rule.description }}: {{ field }} is required"
+          errors += "{{ rule.description }}: {{ cond.field }} is required"
         case _ => ()
       }
+{% else %}
+      if (!(instance.{{ cond.field }} {{ cond.op }} {{ cond.value }}))
+        errors += "{{ rule.description }}: {{ cond.field }} must {{ cond.op }} {{ cond.error_value }}"
+{% endif %}
 {% endfor %}
     }
 {% else %}
     }
 {% endif %}
 {% else %}
-{% for field, op, value in rule.postconditions %}
-    instance.{{ field }} match {
-      case Some(v) if !(v {{ op }} {{ value }}) =>
-        errors += "{{ rule.description }}: {{ field }} must {{ op }} {{ value }}"
+{% for cond in rule.postconditions %}
+{% if cond.is_optional %}
+    instance.{{ cond.field }} match {
+      case Some(v) if !(v {{ cond.op }} {{ cond.value }}) =>
+        errors += "{{ rule.description }}: {{ cond.field }} must {{ cond.op }} {{ cond.error_value }}"
       case None =>
-        errors += "{{ rule.description }}: {{ field }} is required"
+        errors += "{{ rule.description }}: {{ cond.field }} is required"
       case _ => ()
     }
+{% else %}
+    if (!(instance.{{ cond.field }} {{ cond.op }} {{ cond.value }}))
+      errors += "{{ rule.description }}: {{ cond.field }} must {{ cond.op }} {{ cond.error_value }}"
+{% endif %}
 {% endfor %}
 {% endif %}
     errors.result()
@@ -190,33 +209,47 @@ object {{ name }} {
     val errors = List.newBuilder[String]
 {% if rule.postconditions %}
     val preconditionsMet =
-{% for field, op, value in rule.postconditions %}
-      instance.{{ field }} match {
-        case Some(v) => v {{ op }} {{ value }}
+{% for cond in rule.postconditions %}
+{% if cond.is_optional %}
+      instance.{{ cond.field }} match {
+        case Some(v) => v {{ cond.op }} {{ cond.value }}
         case None => false
       }{% if not loop.last %} &&{% endif %}
+{% else %}
+      (instance.{{ cond.field }} {{ cond.op }} {{ cond.value }}){% if not loop.last %} &&{% endif %}
+{% endif %}
 
 {% endfor %}
     if (preconditionsMet) {
-{% for field, op, value in rule.preconditions %}
-      instance.{{ field }} match {
-        case Some(v) if !(v {{ op }} {{ value }}) =>
-          errors += "{{ rule.description }}: {{ field }} must {{ op }} {{ value }}"
+{% for cond in rule.preconditions %}
+{% if cond.is_optional %}
+      instance.{{ cond.field }} match {
+        case Some(v) if !(v {{ cond.op }} {{ cond.value }}) =>
+          errors += "{{ rule.description }}: {{ cond.field }} must {{ cond.op }} {{ cond.error_value }}"
         case None =>
-          errors += "{{ rule.description }}: {{ field }} is required"
+          errors += "{{ rule.description }}: {{ cond.field }} is required"
         case _ => ()
       }
+{% else %}
+      if (!(instance.{{ cond.field }} {{ cond.op }} {{ cond.value }}))
+        errors += "{{ rule.description }}: {{ cond.field }} must {{ cond.op }} {{ cond.error_value }}"
+{% endif %}
 {% endfor %}
     }
 {% else %}
-{% for field, op, value in rule.preconditions %}
-    instance.{{ field }} match {
-      case Some(v) if !(v {{ op }} {{ value }}) =>
-        errors += "{{ rule.description }}: {{ field }} must {{ op }} {{ value }}"
+{% for cond in rule.preconditions %}
+{% if cond.is_optional %}
+    instance.{{ cond.field }} match {
+      case Some(v) if !(v {{ cond.op }} {{ cond.value }}) =>
+        errors += "{{ rule.description }}: {{ cond.field }} must {{ cond.op }} {{ cond.error_value }}"
       case None =>
-        errors += "{{ rule.description }}: {{ field }} is required"
+        errors += "{{ rule.description }}: {{ cond.field }} is required"
       case _ => ()
     }
+{% else %}
+    if (!(instance.{{ cond.field }} {{ cond.op }} {{ cond.value }}))
+      errors += "{{ rule.description }}: {{ cond.field }} must {{ cond.op }} {{ cond.error_value }}"
+{% endif %}
 {% endfor %}
 {% endif %}
     errors.result()

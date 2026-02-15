@@ -83,12 +83,25 @@ class ScalaOperation:
 
 
 @dataclass
+class RuleCondition:
+    field: str
+    op: str
+    value: str
+    is_optional: bool = True
+    error_value: str = ""  # escaped version of value for error messages
+
+    def __iter__(self):
+        """Allow tuple unpacking for backward compat with (field, op, value)."""
+        return iter((self.field, self.op, self.value))
+
+
+@dataclass
 class RuleCheck:
     name: str
     description: str
-    preconditions: list[tuple[str, str, str]] = field(default_factory=list)  # (field, op, value)
-    postconditions: list[tuple[str, str, str]] = field(default_factory=list)
-    elseconditions: list[tuple[str, str, str]] = field(default_factory=list)
+    preconditions: list[RuleCondition] = field(default_factory=list)
+    postconditions: list[RuleCondition] = field(default_factory=list)
+    elseconditions: list[RuleCondition] = field(default_factory=list)
     deactivated: bool = False
     bidirectional: bool = False
     open_world: bool = False
@@ -214,7 +227,7 @@ class ScalaGenerator(Generator):
             default=default,
             description=effective_description,
             identifier=bool(effective_identifier),
-            pattern=effective_pattern,
+            pattern=effective_pattern.replace("\\", "\\\\"),
             minimum_value=float(effective_min_val) if effective_min_val is not None else None,
             maximum_value=float(effective_max_val) if effective_max_val is not None else None,
             minimum_cardinality=int(effective_min_card) if effective_min_card is not None else None,
@@ -344,31 +357,63 @@ class ScalaGenerator(Generator):
                     keys.append(f"Unique key: ({', '.join(slots)})")
         return keys
 
-    def _extract_slot_conditions(self, class_expr) -> list[tuple[str, str, str]]:
+    def _get_enum_type_for_field(self, field_info: ScalaField) -> str | None:
+        """Return the enum type name if the field's Scala type is an enum, else None."""
+        sv = self._get_schemaview()
+        enum_names = {self._to_pascal_case(e) for e in sv.all_enums()}
+        # Extract base type from Option[T], List[T], or plain T
+        base = field_info.scala_type
+        for wrapper in ("Option[", "List["):
+            if base.startswith(wrapper) and base.endswith("]"):
+                base = base[len(wrapper):-1]
+        return base if base in enum_names else None
+
+    def _extract_slot_conditions(self, class_expr, fields_by_name: dict[str, ScalaField] | None = None) -> list[RuleCondition]:
         """Extract slot conditions from a class expression (pre/post/else conditions).
 
-        Returns list of (field_name, operator, value) tuples.
+        Returns list of RuleCondition objects with type-aware field info.
         """
-        conditions = []
+        conditions: list[RuleCondition] = []
         if class_expr is None:
             return conditions
         if getattr(class_expr, "slot_conditions", None):
             for slot_name, cond in class_expr.slot_conditions.items():
                 field_name = self._to_camel_case(slot_name)
+                field_info = fields_by_name.get(field_name) if fields_by_name else None
+                is_optional = field_info is None or "Option[" in field_info.scala_type
                 if getattr(cond, "minimum_value", None) is not None:
-                    conditions.append((field_name, ">=", str(cond.minimum_value)))
+                    conditions.append(RuleCondition(
+                        field=field_name, op=">=", value=str(cond.minimum_value),
+                        is_optional=is_optional, error_value=str(cond.minimum_value),
+                    ))
                 if getattr(cond, "maximum_value", None) is not None:
-                    conditions.append((field_name, "<=", str(cond.maximum_value)))
+                    conditions.append(RuleCondition(
+                        field=field_name, op="<=", value=str(cond.maximum_value),
+                        is_optional=is_optional, error_value=str(cond.maximum_value),
+                    ))
                 if getattr(cond, "equals_string", None):
-                    conditions.append((field_name, "==", f'"{cond.equals_string}"'))
+                    raw = cond.equals_string
+                    # Check if field type is an enum — use enum value reference instead of string
+                    enum_type = self._get_enum_type_for_field(field_info) if field_info else None
+                    if enum_type:
+                        value = f"{enum_type}.{self._to_pascal_case(raw)}"
+                    else:
+                        value = f'"{raw}"'
+                    conditions.append(RuleCondition(
+                        field=field_name, op="==", value=value,
+                        is_optional=is_optional, error_value=raw,
+                    ))
                 if getattr(cond, "equals_number", None) is not None:
-                    conditions.append((field_name, "==", str(cond.equals_number)))
+                    conditions.append(RuleCondition(
+                        field=field_name, op="==", value=str(cond.equals_number),
+                        is_optional=is_optional, error_value=str(cond.equals_number),
+                    ))
         # Recurse into combinators on the class expression
         for combinator in ("any_of", "all_of", "exactly_one_of", "none_of"):
             sub_exprs = getattr(class_expr, combinator, None)
             if sub_exprs:
                 for sub_expr in sub_exprs:
-                    conditions.extend(self._extract_slot_conditions(sub_expr))
+                    conditions.extend(self._extract_slot_conditions(sub_expr, fields_by_name))
         return conditions
 
     def _get_rules(self, cls: ClassDefinition) -> list[RuleCheck]:
@@ -376,6 +421,8 @@ class ScalaGenerator(Generator):
         rules = []
         if not getattr(cls, "rules", None):
             return rules
+        fields = self._get_fields(cls)
+        fields_by_name = {f.name: f for f in fields}
         for i, rule in enumerate(cls.rules):
             # Skip deactivated rules
             if getattr(rule, "deactivated", False):
@@ -390,9 +437,9 @@ class ScalaGenerator(Generator):
                 bidirectional=bidirectional,
                 open_world=open_world,
             )
-            rc.preconditions = self._extract_slot_conditions(getattr(rule, "preconditions", None))
-            rc.postconditions = self._extract_slot_conditions(getattr(rule, "postconditions", None))
-            rc.elseconditions = self._extract_slot_conditions(getattr(rule, "elseconditions", None))
+            rc.preconditions = self._extract_slot_conditions(getattr(rule, "preconditions", None), fields_by_name)
+            rc.postconditions = self._extract_slot_conditions(getattr(rule, "postconditions", None), fields_by_name)
+            rc.elseconditions = self._extract_slot_conditions(getattr(rule, "elseconditions", None), fields_by_name)
             rules.append(rc)
         return rules
 
