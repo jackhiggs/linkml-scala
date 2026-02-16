@@ -1,4 +1,9 @@
-"""Python dataclasses for the Scala metamodel extensions."""
+"""Python dataclasses for the Scala metamodel extensions.
+
+These hand-written dataclasses mirror scala_metamodel.yaml.
+The generated pydantic models live in scala_metamodel_gen.py;
+CI validates that the two stay in sync (see ``make check-metamodel``).
+"""
 
 from dataclasses import dataclass, field
 from typing import Optional
